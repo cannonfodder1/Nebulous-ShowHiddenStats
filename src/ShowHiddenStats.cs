@@ -185,6 +185,13 @@ namespace ShowHiddenStats
     {
         static void Postfix(ref BaseHull __instance, ref string __result)
         {
+            StatValue statInternalDensity = (StatValue)Utilities.GetPrivateField(__instance, "_statInternalDensity");
+
+            string internalDensity = "\n" + "Internal Density: " + statInternalDensity.Value + " " + statInternalDensity.Unit;
+
+            int densityInsertionPoint = __result.IndexOf("Component DR") - 1;
+            __result = __result.Insert(densityInsertionPoint, internalDensity);
+
             StatValue statIdentityWorkRequired = (StatValue)Utilities.GetPrivateField(__instance, "_statIdentityWorkRequired");
 
             string intelSummary = "";
@@ -192,8 +199,8 @@ namespace ShowHiddenStats
             intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 4) + "\n";
             intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 15) + "\n";
 
-            int insertionPoint = __result.IndexOf("Signatures") - 1;
-            __result = __result.Insert(insertionPoint, intelSummary);
+            int intelInsertionPoint = __result.IndexOf("Signatures") - 1;
+            __result = __result.Insert(intelInsertionPoint, intelSummary);
         }
     }
     
