@@ -137,22 +137,7 @@ namespace ShowHiddenStats
 
             return roundsPerMinute;
         }
-        /*
-        public static List<IMunition> getWeaponAmmoTypes(WeaponComponent weaponComponent)
-        {
-            List<IMunition> ammoTypes = new List<IMunition>();
 
-            foreach (IMunition munition in BundleManager.Instance.AllMunitions)
-            {
-                if (weaponComponent.IsAmmoCompatible(munition))
-                {
-                    ammoTypes.Add(munition);
-                }
-            }
-
-            return ammoTypes;
-        }
-        */
         public static float[] findThrusterStrengthValues(BaseHull hull)
         {
             float thrusterValueRear = 0.0f;
@@ -168,26 +153,6 @@ namespace ShowHiddenStats
                 if (subpart.GetType() == typeof(ThrusterPart))
                 {
                     ThrusterPart thruster = (ThrusterPart)subpart;
-
-                    /*
-                    Direction thrusterDirection = (Direction)Utilities.GetPrivateField(thruster, "_thrustDirection");
-
-                    if (thrusterDirection == Direction.Forward)
-                    {
-                        numThrustersRear++;
-                        thrusterValueRear += (float)Utilities.GetPrivateField(thruster, "_power");
-                    }
-                    else if (thrusterDirection == Direction.Backward)
-                    {
-                        numThrustersFore++;
-                        thrusterValueFore += (float)Utilities.GetPrivateField(thruster, "_power");
-                    }
-                    else
-                    {
-                        numThrustersSide++;
-                        thrusterValueSide += (float)Utilities.GetPrivateField(thruster, "_power");
-                    }
-                    */
 
                     bool isMainEngine = (bool)Utilities.GetPrivateField(thruster, "_mainEngine");
                     bool isManeuvering = (bool)Utilities.GetPrivateField(thruster, "_contributeAngular");
@@ -213,157 +178,6 @@ namespace ShowHiddenStats
             float[] thrusterStrengths = { thrusterValueRear / numThrustersRear, thrusterValueFore / numThrustersFore, thrusterValueSide / numThrustersSide  };
             return thrusterStrengths;
         }
-        /*
-        public static List<int> GetPointsByCategory(BaseHull hull)
-        {
-            int hullCost = hull.PointCost;
-            int offWeaponCost = 0;
-            int defWeaponCost = 0;
-            int wepSupportCost = 0;
-            int eWarCost = 0;
-            int powerCost = 0;
-            int crewCost = 0;
-            int damConCost = 0;
-            int ammoCost = 0;
-            int missileCost = 0;
-            int otherCost = 0;
-
-            foreach (IGrouping<string, HullSocket> componentType in from x in hull.AllSockets
-                                                                    where x.Component != null
-                                                                    group x by x.Component.CompoundingCostClass)
-            {
-                int count = 0;
-                foreach (HullSocket socket in componentType.OrderByDescending((HullSocket x) => x.Component.GetSortingPointCost()))
-                {
-                    HullComponent c = socket.Component;
-                    int cost = c.GetPointCost(count++, null);
-
-                    // exception needed because ACAs are in the Weapon Support category for some reason
-                    if (c.ComponentName == "Actively Cooled Amplifiers")
-                    {
-                        eWarCost += cost;
-                        continue;
-                    }
-
-                    switch (c.Category)
-                    {
-                        case "Damage Control":
-                            damConCost += cost;
-                            break;
-                        case "Powerplant":
-                            powerCost += cost;
-                            break;
-                        case "Engineering":
-                            powerCost += cost;
-                            break;
-                        case "Propulsion":
-                            powerCost += cost;
-                            break;
-                        case "Command":
-                            crewCost += cost;
-                            break;
-                        case "Crew":
-                            crewCost += cost;
-                            break;
-                        case "Communications":
-                            eWarCost += cost;
-                            break;
-                        case "Intelligence":
-                            eWarCost += cost;
-                            break;
-                        case "Sensors":
-                            eWarCost += cost;
-                            break;
-                        case "EWar":
-                            eWarCost += cost;
-                            break;
-                        case "Storage":
-                            ammoCost += cost;
-                            break;
-                        case "Weapon Support":
-                            wepSupportCost += cost;
-                            break;
-                        case "Weapons - Energy":
-                            offWeaponCost += cost;
-                            break;
-                        case "Weapons - Projectile":
-                            offWeaponCost += cost;
-                            break;
-                        case "Weapons - Spinal":
-                            offWeaponCost += cost;
-                            break;
-                        case "Weapons - Point Defense":
-                            defWeaponCost += cost;
-                            break;
-                        case "Weapons - Missile":
-                            missileCost += cost;
-                            break;
-                        default:
-                            otherCost += cost;
-                            break;
-                    }
-                }
-            }
-
-            List<int> costs = new List<int>();
-            costs.Add(hullCost);
-            costs.Add(offWeaponCost);
-            costs.Add(defWeaponCost);
-            costs.Add(wepSupportCost);
-            costs.Add(eWarCost);
-            costs.Add(powerCost);
-            costs.Add(crewCost);
-            costs.Add(damConCost);
-            costs.Add(ammoCost);
-            costs.Add(missileCost);
-            costs.Add(otherCost);
-
-            return costs;
-        }
-        */
-
-        // copied from https://stackoverflow.com/a/14510824 in order to handle fractional exponents properly
-        public static double Pow(double expBase, double power)
-        {
-            bool sign = (expBase < 0);
-            if (sign && HasEvenDenominator(power))
-                return double.NaN;  //sqrt(-1) = i
-            else
-            {
-                if (sign && HasOddDenominator(power))
-                    return -1 * Math.Pow(Math.Abs(expBase), power);
-                else
-                    return Math.Pow(expBase, power);
-            }
-        }
-
-        private static bool HasEvenDenominator(double input)
-        {
-            if (input == 0)
-                return false;
-            else if (input % 1 == 0)
-                return false;
-
-            double inverse = 1 / input;
-            if (inverse % 2 < double.Epsilon)
-                return true;
-            else
-                return false;
-        }
-
-        private static bool HasOddDenominator(double input)
-        {
-            if (input == 0)
-                return false;
-            else if (input % 1 == 0)
-                return false;
-
-            double inverse = 1 / input;
-            if ((inverse + 1) % 2 < double.Epsilon)
-                return true;
-            else
-                return false;
-        }
     }
     
     [HarmonyPatch(typeof(BaseHull), "EditorFormatHullStats")]
@@ -380,29 +194,6 @@ namespace ShowHiddenStats
 
             int insertionPoint = __result.IndexOf("Signatures") - 1;
             __result = __result.Insert(insertionPoint, intelSummary);
-
-            /*
-            StatValue statVisionDistance = (StatValue)Utilities.GetPrivateField(__instance, "_statVisionDistance");
-            __result = __result + "\n" + statVisionDistance.FullTextWithLink;
-
-            List<int> pointsByCategory = ShowHiddenStats.GetPointsByCategory(__instance);
-
-            string breakdown = "";
-            breakdown += " - Base Hull: " + pointsByCategory[0] + "\n";
-            breakdown += " - Offensive Weapons: " + pointsByCategory[1] + "\n";
-            breakdown += " - Defensive Weapons: " + pointsByCategory[2] + "\n";
-            breakdown += " - Weapon Support: " + pointsByCategory[3] + "\n";
-            breakdown += " - E-War and Sensors: " + pointsByCategory[4] + "\n";
-            breakdown += " - Power and Drives: " + pointsByCategory[5] + "\n";
-            breakdown += " - Command and Crew: " + pointsByCategory[6] + "\n";
-            breakdown += " - Damage Control: " + pointsByCategory[7] + "\n";
-            breakdown += " - Ammunition: " + pointsByCategory[8] + "\n";
-            breakdown += " - Missiles: " + pointsByCategory[9] + "\n";
-            breakdown += " - Other: " + pointsByCategory[10] + "\n";
-
-            int insertionPoint = __result.IndexOf("\n") + 1;
-            __result = __result.Insert(insertionPoint, breakdown);
-            */
         }
     }
     
@@ -613,36 +404,6 @@ namespace ShowHiddenStats
             if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
 
             __result = __result + "\n";
-
-            /*
-            BaseHull baseHull = (BaseHull)Utilities.GetPrivateField(__instance, "_myHull");
-
-            if (baseHull != null)
-            {
-                if (baseHull.MyShip != null)
-                {
-                    List<IMunition> ammoTypes = ShowHiddenStats.getWeaponAmmoTypes(__instance);
-
-                    if (ammoTypes.Count > 0)
-                    {
-                        int ammoCarried = 0;
-                        
-                        foreach (IMunition munition in ammoTypes)
-                        {
-                            ammoCarried += baseHull.MyShip.CountAmmoType(munition);
-                        }
-
-                        __result = __result + "Current Ammo Load";
-                        if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
-                        __result = __result + ": ";
-
-                        __result = __result + string.Format("{0:0} minutes", ammoCarried / (finalRoundsPerMinute * groupSize));
-
-                        __result = __result + "\n";
-                    }
-                }
-            }
-            */
         }
     }
 
