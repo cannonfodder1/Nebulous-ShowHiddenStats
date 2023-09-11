@@ -1,4 +1,7 @@
 ﻿using Bundles;
+using Game;
+using Game.UI;
+using Game.Units;
 using HarmonyLib;
 using Modding;
 using Munitions;
@@ -7,6 +10,7 @@ using Ships.Controls;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using Utility;
 
 namespace ShowHiddenStats
@@ -718,6 +722,84 @@ namespace ShowHiddenStats
                 (rareDebuffTable.Count > 0) ? (statRareDebuffChance.FullTextWithLink + "\n") : "",
                 "DC Priority: " + dcPriority.ToString()
             });
+        }
+    }
+
+    [HarmonyPatch(typeof(FriendlyShipItem), "HandleStructureBroken")]
+    class Patch_FriendlyShipItem_HandleStructureBroken
+    {
+        static bool Prefix(ref FriendlyShipItem __instance)
+        {
+            ShipController ship = (ShipController)Utilities.GetPrivateField(__instance, "_ship");
+            if (ship != null)
+            {
+                HullStructure structure = ship.Ship.Hull._structure;
+
+                if (structure != null)
+                {
+                    //Debug.Log("SHS STRUCTURE: hull valid");
+                    StatusIcon structureIcon = (StatusIcon)Utilities.GetPrivateField(__instance, "_structureIcon");
+
+                    if (structureIcon != null)
+                    {
+                        //Debug.Log("SHS STRUCTURE: icon valid");
+                        structureIcon.Show();
+                        structureIcon.ChangedFlash();
+
+                        float maxHealth = (float)Utilities.GetPrivateField(structure, "_maxHealth");
+                        Graphic graphic = (Graphic)Utilities.GetPrivateField(structureIcon, "_graphic");
+
+                        //Debug.Log("SHS STRUCTURE: " + structure.CurrentHealth + "/" + maxHealth);
+                        if (structure.IsDestroyed)
+                        {
+                            structureIcon.UpdateTooltipText("Structure Broken: damage dealt to empty areas of the ship will be transferred to intact components");
+                            
+                            graphic.color = GameColors.Red;
+                        }
+                        else
+                        {
+                            structureIcon.UpdateTooltipText("Structural Integrity: " + string.Format("{0:0}%", 100 * structure.CurrentHealth / maxHealth) + " " + string.Format("({0:0}/{1:0})", structure.CurrentHealth, maxHealth));
+
+                            if (structure.CurrentHealth / maxHealth < 0.5f)
+                            {
+                                graphic.color = GameColors.Yellow;
+                            }
+                            else
+                            {
+                                graphic.color = GameColors.Green;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HullStructure), "Game.ISubDamageable.DoDamage")]
+    class Patch_HullStructure_DoDamage
+    {
+        static void Postfix(ref HullStructure __instance, ref bool __result)
+        {
+            if (__result == true)
+            {
+                return;
+            }
+
+            FriendlyShipList shipList = SkirmishGameManager.Instance.UI.MyShipList;
+            List<FriendlyShipItem> shipItems = (List<FriendlyShipItem>)Utilities.GetPrivateField(shipList, "_ships");
+            Ship ship = (Ship)Utilities.GetPrivateField(__instance, "_ship");
+
+            foreach (FriendlyShipItem shipItem in shipItems)
+            {
+                if (shipItem.Ship.Ship == ship)
+                {
+                    object[] parameters = { __result };
+                    Utilities.CallPrivateMethod(shipItem, "HandleStructureBroken", parameters);
+                    return;
+                }
+            }
         }
     }
 }
