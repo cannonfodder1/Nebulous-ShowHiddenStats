@@ -64,23 +64,6 @@ namespace ShowHiddenStats
             }
         }
 
-        public static void AddDepthFalloffStat(ref string result, AnimationCurve depthFalloff, float maxDepth, float maxRange)
-        {
-            if (depthFalloff == null) return;
-
-            result = result + "\n\n";
-            result = result + "Penetration Depth at Range:";
-
-            float[] distances = { 0.25f, 0.50f, 0.75f, 1.00f };
-
-            foreach (float distance in distances)
-            {
-                result = result + "\n";
-                float depth = depthFalloff.Evaluate(distance) * maxDepth * 10f;
-                result = result + string.Format("   * {0:N0} m at {1:0.##} km", depth, distance * maxRange * 10f / 1000f);
-            }
-        }
-
         public static void AddDamageFalloffStat(ref string result, AnimationCurve damageFalloff, float maxRange)
         {
             if (damageFalloff == null) return;
@@ -365,6 +348,26 @@ namespace ShowHiddenStats
             ShowHiddenStats.AddOverpenDamageStat(ref __result, overpenDamageMultiplier);
             ShowHiddenStats.AddCriticalEventStat(ref __result, randomEffectMultiplier);
             ShowHiddenStats.AddCrewDamageStat(ref __result, crewVulnerabilityMultiplier);
+        }
+    }
+
+    [HarmonyPatch(typeof(LightweightMunitionBase), "GetDamageStatsText")]
+    class Patch_LightweightMunitionBase_GetDamageStatsText
+    {
+        static void Postfix(ref LightweightMunitionBase __instance, ref string __result)
+        {
+            __result = __result.Replace("Penetration Depth", "Maximum Penetration Depth");
+
+            float overrideComponentSearchDistance = (float)Utilities.GetPrivateField(__instance, "_overrideComponentSearchDistance");
+            if (overrideComponentSearchDistance > 0)
+            {
+                if (__result.Contains("Maximum Penetration Depth"))
+                {
+                    __result = __result.Remove(__result.IndexOf("Maximum Penetration Depth"));
+                }
+
+                __result = __result + "Guaranteed Penetration Depth: " + (overrideComponentSearchDistance * 10) + " m" + "\n";
+            }
         }
     }
 
