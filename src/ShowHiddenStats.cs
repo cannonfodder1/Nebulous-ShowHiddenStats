@@ -492,7 +492,7 @@ namespace ShowHiddenStats
             });
         }
     }
-
+    /*
     [HarmonyPatch(typeof(FriendlyShipItem), "HandleStructureBroken")]
     class Patch_FriendlyShipItem_HandleStructureBroken
     {
@@ -544,7 +544,7 @@ namespace ShowHiddenStats
             return false;
         }
     }
-
+    
     [HarmonyPatch(typeof(HullStructure), "Game.ISubDamageable.DoDamage")]
     class Patch_HullStructure_DoDamage
     {
@@ -555,21 +555,25 @@ namespace ShowHiddenStats
                 return;
             }
 
-            FriendlyShipList shipList = SkirmishGameManager.Instance.UI.MyShipList;
-            List<FriendlyShipItem> shipItems = (List<FriendlyShipItem>)Utilities.GetPrivateField(shipList, "_ships");
-            Ship ship = (Ship)Utilities.GetPrivateField(__instance, "_ship");
-
-            foreach (FriendlyShipItem shipItem in shipItems)
+            if (SkirmishGameManager.Instance.IsSoloGame)
             {
-                if (shipItem.Ship.Ship == ship)
+                FriendlyShipList shipList = SkirmishGameManager.Instance.UI.MyShipList;
+                List<FriendlyShipItem> shipItems = (List<FriendlyShipItem>)Utilities.GetPrivateField(shipList, "_ships");
+                Ship ship = (Ship)Utilities.GetPrivateField(__instance, "_ship");
+
+                foreach (FriendlyShipItem shipItem in shipItems)
                 {
-                    object[] parameters = { __result };
-                    Utilities.CallPrivateMethod(shipItem, "HandleStructureBroken", parameters);
-                    return;
+                    if (shipItem.Ship.Ship == ship)
+                    {
+                        object[] parameters = { __result };
+                        Utilities.CallPrivateMethod(shipItem, "HandleStructureBroken", parameters);
+                        return;
+                    }
                 }
             }
         }
     }
+    */
 }
 
 
