@@ -1,5 +1,7 @@
 ﻿using Bundles;
 using Game;
+using Game.EWar;
+using Game.Sensors;
 using Game.UI;
 using Game.Units;
 using HarmonyLib;
@@ -9,6 +11,8 @@ using Ships;
 using Ships.Controls;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using Utility;
@@ -17,6 +21,8 @@ namespace ShowHiddenStats
 {
     public class ShowHiddenStats : IModEntryPoint
     {
+        public static Ship CurrentlyEditingShip;
+
         public void PostLoad()
         {
             Harmony harmony = new Harmony("nebulous.show-hidden-stats");
@@ -28,100 +34,95 @@ namespace ShowHiddenStats
 
         }
 
-        public static void AddArmorShreddingStat(ref string __result, float armorDamageRadius)
+		public static void ReplaceStatLabel(List<(string, string)> StatList, string TargetLabel, string ReplaceWith, string NewValue = "")
+		{
+			ValueTuple<string, string> replaceItem = StatList.Find(tuple => tuple.Item1 == TargetLabel);
+			int replaceIndex = StatList.FindIndex(tuple => tuple.Item1 == TargetLabel);
+			replaceItem.Item1 = ReplaceWith;
+
+            if (NewValue != "")
+            {
+                replaceItem.Item2 = NewValue;
+            }
+
+			StatList.Insert(replaceIndex, replaceItem);
+			StatList.RemoveAt(replaceIndex + 1);
+		}
+
+		public static ValueTuple<string, string> GetArmorShreddingStat(float armorDamageRadius)
         {
             if (armorDamageRadius > 0)
             {
-                __result = __result + "\n" + "Armor Shredding Radius: " + armorDamageRadius + " m";
+                return new ValueTuple<string, string>("Armor Shredding Radius", armorDamageRadius + " m");
             }
+            else
+			{
+				return new ValueTuple<string, string>("Armor Shredding Radius", "NONE");
+			}
         }
 
-        public static void AddOverpenDamageStat(ref string __result, float overpenDamageMultiplier)
+        public static ValueTuple<string, string> GetOverpenDamageStat(float overpenDamageMultiplier)
         {
             if (overpenDamageMultiplier < 1)
-            {
-                __result = __result + "\n" + "Overpenetration Damage: " + (overpenDamageMultiplier * 100) + " %";
-            }
-        }
+			{
+				return new ValueTuple<string, string>("Overpenetration Damage", overpenDamageMultiplier + " m");
+			}
+			else
+			{
+				return new ValueTuple<string, string>("Overpenetration Damage", "FULL");
+			}
+		}
 
-        public static void AddCriticalEventStat(ref string __result, float randomEffectMultiplier)
+        public static ValueTuple<string, string> GetCriticalEventStat(float randomEffectMultiplier)
         {
             if (randomEffectMultiplier != 1f)
             {
                 randomEffectMultiplier = (randomEffectMultiplier - 1) * 100;
                 string prefix = (randomEffectMultiplier < 0) ? "" : "+";
-                __result = __result + "\n" + "Critical Event Chance: " + prefix + randomEffectMultiplier + " %";
-            }
+				return new ValueTuple<string, string>("Crit Chance Modifier", prefix + randomEffectMultiplier + " %");
+			}
+            else
+			{
+				return new ValueTuple<string, string>("Crit Chance Modifier", "BASE");
+			}
         }
 
-        public static void AddCrewDamageStat(ref string __result, float crewVulnerabilityMultiplier)
+        public static ValueTuple<string, string> GetCrewDamageStat(float crewVulnerabilityMultiplier)
         {
             if (crewVulnerabilityMultiplier != 1f)
             {
                 crewVulnerabilityMultiplier = (crewVulnerabilityMultiplier - 1) * 100;
                 string prefix = (crewVulnerabilityMultiplier < 0) ? "" : "+";
-                __result = __result + "\n" + "Crew Damage Modifier: " + prefix + crewVulnerabilityMultiplier + " %";
-            }
-        }
-
-        public static void AddDamageFalloffStat(ref string result, AnimationCurve damageFalloff, float maxRange)
-        {
-            if (damageFalloff == null) return;
-
-            result = result + "\n\n";
-            result = result + "Damage and Penetration at Range:";
-
-            float[] distances = { maxRange - 300f, maxRange - 100f, maxRange };
-
-            foreach (float distance in distances)
-            {
-                result = result + "\n";
-                float damage = damageFalloff.Evaluate(distance / maxRange) * 100;
-                result = result + string.Format("   * {0:N0}% at {1:0.##} km", damage, distance * 10f / 1000f);
-            }
-        }
-
-        public static float calculateRoundsPerMinute(DiscreteWeaponComponent weapon, bool useBaseStats = false)
-        {
-            int magazineSize = (int)Utilities.GetPrivateField(weapon, "_magazineSize");
-            StatValue statRecycleTime = (StatValue)Utilities.GetPrivateField(weapon, "_statRecycleTime");
-            StatValue statReloadTime = (StatValue)Utilities.GetPrivateField(weapon, "_statReloadTime");
-
-            float fullCycleTime;
-
-            if (useBaseStats)
-            {
-                fullCycleTime = ((magazineSize - 1) * statRecycleTime.BaseValue) + statReloadTime.BaseValue;
-            }
+				return new ValueTuple<string, string>("Crew Damage Modifier", prefix + crewVulnerabilityMultiplier + " %");
+			}
             else
             {
-                fullCycleTime = ((magazineSize - 1) * statRecycleTime.Value) + statReloadTime.Value;
-            }
-
-            float secondsPerRound = fullCycleTime / magazineSize;
-            float roundsPerMinute = 60 / secondsPerRound;
-
-            return roundsPerMinute;
+				return new ValueTuple<string, string>("Crew Damage Modifier", "BASE");
+			}
         }
 
-        public static float calculateRoundsPerMinute(ContinuousWeaponComponent weapon)
+        public static List<ValueTuple<string, string>> GetDamageFalloffStat(AnimationCurve damageFalloff, float maxRange)
         {
-            Muzzle[] muzzles = (Muzzle[])Utilities.GetPrivateField(weapon, "_muzzles");
-
-            float roundsPerMinute = 0;
-
-            foreach (Muzzle muzzle in muzzles)
+            if (damageFalloff == null)
             {
-                if (muzzle is IFireRateMuzzle rofMuzzle)
-                {
-                    roundsPerMinute += rofMuzzle.RoundsPerMinute;
-                }
+                throw new ArgumentNullException(nameof(damageFalloff));
             }
 
-            return roundsPerMinute;
+			List<ValueTuple<string, string>> result = new List<ValueTuple<string, string>>();
+			result.Add(new ValueTuple<string, string>("Damage and Penetration at Range", ""));
+
+			float[] distances = { maxRange * (1.0f / 4.0f), maxRange * (2.0f / 4.0f), maxRange * (3.0f / 4.0f), maxRange };
+
+			foreach (float distance in distances)
+            {
+                float damage = damageFalloff.Evaluate(distance / maxRange) * 100;
+				result.Add(new ValueTuple<string, string>(string.Format(" - {0:0.00} km", distance * 10f / 1000f), string.Format("{0:N0}%", damage)));
+			}
+
+            return result;
         }
 
-        public static float[] findThrusterStrengthValues(BaseHull hull)
+        public static float[] FindThrusterStrengthValues(BaseHull hull)
         {
             float thrusterValueRear = 0.0f;
             float thrusterValueFore = 0.0f;
@@ -160,20 +161,257 @@ namespace ShowHiddenStats
 
             float[] thrusterStrengths = { thrusterValueRear / numThrustersRear, thrusterValueFore / numThrustersFore, thrusterValueSide / numThrustersSide  };
             return thrusterStrengths;
-        }
-    }
+		}
+
+		public static double CalculateDetectionRange(float signature, float radiatedPower, float gain, float apertureSize, float sensitivity)
+        {
+			// = 100 * (power * gain^2 * aperture * signature / (4*PI())^2 / noise / 100)^0.25
+			double rangeToPowerLimit4 = signature * gain * gain * radiatedPower * apertureSize / (16 * Math.PI * Math.PI) / 100f;
+			double rangeToPowerLimit = Math.Pow(rangeToPowerLimit4, (double)1 / 4) * 100f;
+
+			// = 10 * (power * gain^2 * aperture * signature * 0.000625 / PI()^2 / 10^(sensitivity / 10))^0.25
+			double rangeToSensitivityLimit4 = signature * gain * gain * radiatedPower * apertureSize * 0.000625f / (Math.PI * Math.PI) / Math.Pow(10f, sensitivity / 10f);
+			double rangeToSensitivityLimit = Math.Pow(rangeToSensitivityLimit4, (double)1 / 4) * 10f;
+
+			if (rangeToPowerLimit < 0 || rangeToSensitivityLimit < 0)
+			{
+				Debug.LogError("(SHS) error in search radar power/sensitivity calculation, final numbers should not be negative: " + rangeToPowerLimit + " and " + rangeToSensitivityLimit);
+				return 0;
+			}
+
+			return Math.Min(rangeToPowerLimit, rangeToSensitivityLimit);
+		}
+
+        public static int GetBaselinePowerRequirement(ref List<HullComponent> consumerList)
+        {
+            int total = 0;
+            List<HullComponent> removalList = new List<HullComponent>();
+
+            //Debug.Log("BASELINE POWER DRAW");
+
+            foreach (HullComponent component in consumerList)
+            {
+                if (component == null)
+                {
+                    continue;
+                }
+
+                if (IsBaselineComponent(component))
+                {
+                    foreach (ResourceModifier resource in component.ResourcesRequired)
+                    {
+                        if (resource.ResourceName == "Power")
+                        {
+                            //Debug.Log(" - " + component.ComponentName);
+
+                            total += resource.Amount;
+                            removalList.Add(component);
+                        }
+                    }
+                }
+            }
+
+            foreach (HullComponent component in removalList)
+            {
+                consumerList.Remove(component);
+            }
+
+			return total;
+		}
+
+		public static int GetDefensivePowerRequirement(ref List<HullComponent> consumerList)
+		{
+			int total = 0;
+			List<HullComponent> removalList = new List<HullComponent>();
+
+			//Debug.Log("DEFENSIVE POWER DRAW");
+
+			foreach (HullComponent component in consumerList)
+			{
+				if (component == null)
+				{
+					continue;
+				}
+
+				if (IsDefensiveComponent(component))
+				{
+					foreach (ResourceModifier resource in component.ResourcesRequired)
+					{
+						if (resource.ResourceName == "Power")
+						{
+							//Debug.Log(" - " + component.ComponentName);
+
+							total += resource.Amount;
+							removalList.Add(component);
+						}
+					}
+				}
+			}
+
+			foreach (HullComponent component in removalList)
+			{
+				consumerList.Remove(component);
+			}
+
+			return total;
+		}
+
+		public static int GetOffensivePowerRequirement(ref List<HullComponent> consumerList)
+		{
+			int total = 0;
+			List<HullComponent> removalList = new List<HullComponent>();
+
+			//Debug.Log("OFFENSIVE POWER DRAW");
+
+			foreach (HullComponent component in consumerList)
+			{
+                if (component == null)
+                {
+                    continue;
+                }
+
+				if (IsOffensiveComponent(component))
+				{
+					foreach (ResourceModifier resource in component.ResourcesRequired)
+					{
+						if (resource.ResourceName == "Power")
+						{
+							//Debug.Log(" - " + component.ComponentName);
+
+							total += resource.Amount;
+							removalList.Add(component);
+						}
+					}
+				}
+			}
+
+			foreach (HullComponent component in removalList)
+			{
+				consumerList.Remove(component);
+			}
+
+			return total;
+		}
+
+		public static bool IsBaselineComponent(HullComponent component)
+		{
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			if (component is BaseCellLauncherComponent)
+			{
+				return true;
+			}
+
+            if (component is WeaponComponent)
+            {
+                return false;
+			}
+
+			if (component is FixedActiveSensorComponent || component is TurretedActiveSensorComponent || component is SensorTurretComponent)
+			{
+				return false;
+			}
+
+			return true;
+		}
+
+		public static bool IsDefensiveComponent(HullComponent component)
+		{
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			if (component is BaseCellLauncherComponent)
+			{
+				return false;
+			}
+
+			if (component is WeaponComponent)
+			{
+				WeaponComponent weapon = (WeaponComponent)component;
+
+				if (weapon.EWType == EWarWeaponType.Jammer)
+				{
+					return true;
+				}
+
+				WeaponRole role = (WeaponRole)Utilities.GetPrivateField(weapon, "_role");
+				if (role == WeaponRole.Defensive || role == WeaponRole.Utility)
+				{
+					return true;
+				}
+
+				if (!weapon.SupportsPositionTargeting && !weapon.SupportsTrackTargeting && !weapon.SupportsVisualTargeting)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		public static bool IsOffensiveComponent(HullComponent component)
+		{
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			if (component is BaseCellLauncherComponent)
+			{
+				return false;
+			}
+
+			if (component is FixedActiveSensorComponent || component is TurretedActiveSensorComponent || component is SensorTurretComponent)
+			{
+				return true;
+			}
+
+			if (component is WeaponComponent)
+			{
+				WeaponComponent weapon = (WeaponComponent)component;
+
+                if (weapon.EWType == EWarWeaponType.Jammer)
+				{
+					return false;
+                }
+
+				if (weapon.EWType == EWarWeaponType.Sensor || weapon.EWType == EWarWeaponType.Illuminator)
+				{
+					return true;
+				}
+
+                WeaponRole role = (WeaponRole)Utilities.GetPrivateField(weapon, "_role");
+                if (role == WeaponRole.Offensive || role == WeaponRole.None)
+				{
+					return true;
+				}
+
+				if (weapon.SupportsPositionTargeting || weapon.SupportsTrackTargeting || weapon.SupportsVisualTargeting)
+				{
+					return true;
+                }
+            }
+
+			return false;
+		}
+	}
     
     [HarmonyPatch(typeof(BaseHull), "EditorFormatHullStats")]
     class Patch_BaseHull_EditorFormatHullStats
     {
-        static void Postfix(ref BaseHull __instance, ref string __result)
+        static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> hull, ref List<ValueTuple<string, string>> sigs)
         {
-            StatValue statInternalDensity = (StatValue)Utilities.GetPrivateField(__instance, "_statInternalDensity");
+			StatValue statInternalDensity = (StatValue)Utilities.GetPrivateField(__instance, "_statInternalDensity");
 
             string internalDensity = "\n" + "Internal Density: " + statInternalDensity.Value + " " + statInternalDensity.Unit;
 
-            int densityInsertionPoint = __result.IndexOf("Component DR") - 1;
-            __result = __result.Insert(densityInsertionPoint, internalDensity);
+			int insertionPoint = hull.FindIndex(tuple => tuple.Item1 == "Component DR");
+			hull.Insert(insertionPoint, new ValueTuple<string, string>("Internal Density", statInternalDensity.Value + " " + statInternalDensity.Unit));
 
             StatValue statIdentityWorkRequired = (StatValue)Utilities.GetPrivateField(__instance, "_statIdentityWorkRequired");
 
@@ -182,199 +420,258 @@ namespace ShowHiddenStats
             intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 4) + "\n";
             intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 15) + "\n";
 
-            int intelInsertionPoint = __result.IndexOf("Signatures") - 1;
-            __result = __result.Insert(intelInsertionPoint, intelSummary);
-        }
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Basic CIC", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 1)));
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Citadel CIC", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 4)));
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Intel Centre", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 15)));
+
+
+
+			StatValue sigMultRadar = (StatValue)Utilities.GetPrivateField(__instance, "_statSigMultRadar");
+			List<HullComponent> searchRadars = BundleManager.Instance.AllComponents.ToList().FindAll(x => x is BaseActiveSensorComponent);
+
+			if (searchRadars.Count > 0) sigs.Add(new ValueTuple<string, string>("Detected At Range", ""));
+
+			foreach (HullComponent component in searchRadars)
+			{
+				BaseActiveSensorComponent searchRadar = (BaseActiveSensorComponent)component;
+
+				if (searchRadar != null)
+				{
+					float statMaxRange = (float)Utilities.GetPrivateField(searchRadar, "_maxRange");
+					float radiatedPower = (float)Utilities.GetPrivateField(searchRadar, "_radiatedPower");
+					float apertureSize = (float)Utilities.GetPrivateField(searchRadar, "_apertureSize");
+					float gain = (float)Utilities.GetPrivateField(searchRadar, "_gain");
+					float sensitivity = (float)Utilities.GetPrivateField(searchRadar, "_sensitivity");
+
+					double range = ShowHiddenStats.CalculateDetectionRange(sigMultRadar.Value * 10f, radiatedPower, gain, apertureSize, sensitivity);
+					string rowHeader = " - " + searchRadar.ComponentName;
+
+					if (range >= statMaxRange * 10f)
+					{
+						sigs.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange / 100f)));
+					}
+					else
+					{
+						sigs.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
+					}
+				}
+			}
+		}
     }
     
     [HarmonyPatch(typeof(BaseHull), "EditorFormatPropulsionStats")]
     class Patch_BaseHull_EditorFormatPropulsionStats
     {
-        static void Postfix(ref BaseHull __instance, ref string __result)
+        static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> __result)
         {
             List<DriveComponent> propulsionComponents = __instance.CollectComponents<DriveComponent>();
             if (propulsionComponents != null && propulsionComponents.Count > 0)
-            {
-                string thrusterPowerString = "";
-                float[] thrusterStrengthValues = ShowHiddenStats.findThrusterStrengthValues(__instance);
+			{
+				float[] thrusterStrengthValues = ShowHiddenStats.FindThrusterStrengthValues(__instance);
 
-                thrusterPowerString = thrusterPowerString + string.Format(" - Main Thrusters: {0:N0}%", thrusterStrengthValues[0] * 100);
-                thrusterPowerString = thrusterPowerString + "\n";
+				int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "Acceleration Time");
+				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Main Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[0] * 100)));
+				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Fore Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[1] * 100)));
+				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Side Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[2] * 100)));
 
-                thrusterPowerString = thrusterPowerString + string.Format(" - Fore Thrusters: {0:N0}%", thrusterStrengthValues[1] * 100);
-                thrusterPowerString = thrusterPowerString + "\n";
+				StatValue statAngularMotor = (StatValue)Utilities.GetPrivateField(__instance, "_statAngularMotor");
+				StatValue statMaxTurnSpeed = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxTurnSpeed");
 
-                thrusterPowerString = thrusterPowerString + string.Format(" - Side Thrusters: {0:N0}%", thrusterStrengthValues[2] * 100);
-                thrusterPowerString = thrusterPowerString + "\n";
+				Vector3D tensor = Vector3D.Zero;
+				Vector3 extents = __instance.TensorCalculationDimensions;
+				double hullMass = (double)__instance.Mass;
+				tensor.X = 0.08333333333333333 * hullMass * (double)(extents.y * extents.y + extents.z * extents.z);
+				tensor.Y = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.z * extents.z);
+				tensor.Z = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.y * extents.y);
 
-                __result = __result.Replace("Acceleration Time", thrusterPowerString + "Acceleration Time");
+				double momentInertiaY = tensor.Y;
+				double momentInertiaZ = tensor.Z;
+				double angularDamping = 0.1;
 
-                StatValue statAngularMotor = (StatValue)Utilities.GetPrivateField(__instance, "_statAngularMotor");
-                StatValue statMaxTurnSpeed = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxTurnSpeed");
+				double baseTrueMaxTurnRate = Math.Min(statAngularMotor.BaseValue / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.BaseValue * 180 / Math.PI);
+				double finalTrueMaxTurnRate = Math.Min(statAngularMotor.Value / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.Value * 180 / Math.PI);
+				float modifierTrueMaxTurnRate = (float)(finalTrueMaxTurnRate / baseTrueMaxTurnRate) - 1.0f;
 
-                Vector3D tensor = Vector3D.Zero;
-                Vector3 extents = __instance.TensorCalculationDimensions;
-                double hullMass = (double)__instance.Mass;
-                tensor.X = 0.08333333333333333 * hullMass * (double)(extents.y * extents.y + extents.z * extents.z);
-                tensor.Y = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.z * extents.z);
-                tensor.Z = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.y * extents.y);
+				double baseMax180TurnSpeed = 180 / (statMaxTurnSpeed.BaseValue * 180 / Math.PI);
+				double finalMax180TurnSpeed = 180 / (statMaxTurnSpeed.Value * 180 / Math.PI);
 
-                double momentInertiaY = tensor.Y;
-                double momentInertiaZ = tensor.Z;
-                double angularDamping = 0.1;
+				double baseTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
+				double finalTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
+				float modifierTimeToTurn180 = (float)(finalTimeToTurn180 / baseTimeToTurn180) - 1.0f;
 
-                double baseTrueMaxTurnRate = Math.Min(statAngularMotor.BaseValue / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.BaseValue * 180 / Math.PI);
-                double finalTrueMaxTurnRate = Math.Min(statAngularMotor.Value / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.Value * 180 / Math.PI);
-                float modifierTrueMaxTurnRate = (float)(finalTrueMaxTurnRate / baseTrueMaxTurnRate) - 1.0f;
+				double baseTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
+				double finalTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
+				float modifierTimeToRoll180 = (float)(finalTimeToRoll180 / baseTimeToRoll180) - 1.0f;
+				
+                ShowHiddenStats.ReplaceStatLabel(__result, "Turn Rate", "Theoretical Turn Rate");
 
-                double baseMax180TurnSpeed = 180 / (statMaxTurnSpeed.BaseValue * 180 / Math.PI);
-                double finalMax180TurnSpeed = 180 / (statMaxTurnSpeed.Value * 180 / Math.PI);
+				string actualTurnStr = string.Format("{0:0.##} deg/s", finalTrueMaxTurnRate);
+				if (modifierTrueMaxTurnRate != 0.0f) actualTurnStr = actualTurnStr + " (" + StatModifier.FormatModifierColored(modifierTrueMaxTurnRate, false) + ")";
+				__result.Add(new ValueTuple<string, string>("Actual Max Turn Rate", actualTurnStr));
 
-                double baseTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
-                double finalTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
-                float modifierTimeToTurn180 = (float)(finalTimeToTurn180 / baseTimeToTurn180) - 1.0f;
+				string estimatedTurnStr = string.Format("{0:0} seconds", finalTimeToTurn180);
+				if (modifierTimeToTurn180 != 0.0f) estimatedTurnStr = estimatedTurnStr + " (" + StatModifier.FormatModifierColored(modifierTimeToTurn180, true) + ")";
+				__result.Add(new ValueTuple<string, string>("Estimated 180 Turn", estimatedTurnStr));
 
-                double baseTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
-                double finalTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
-                float modifierTimeToRoll180 = (float)(finalTimeToRoll180 / baseTimeToRoll180) - 1.0f;
+				string estimatedRollStr = string.Format("{0:0} seconds", finalTimeToRoll180);
+				if (modifierTimeToRoll180 != 0.0f) estimatedRollStr = estimatedRollStr + " (" + StatModifier.FormatModifierColored(modifierTimeToRoll180, true) + ")";
+				__result.Add(new ValueTuple<string, string>("Estimated 180 Roll", estimatedRollStr));
+			}
+		}
+	}
 
-                __result = __result.Replace("Turn Rate", "Theoretical Turn Rate");
+	[HarmonyPatch(typeof(ResourcePool), "CalculateDemandForEditor")]
+	class Patch_ResourcePool_CalculateDemandForEditor
+	{
+		static void Postfix(ref ResourcePool __instance)
+		{
+			if (__instance.Resource.Name == "Power")
+			{
+				string editorDetails = (string)Utilities.GetPrivateField(__instance, "_editorDetails");
+				List<HullComponent> consumers = (List<HullComponent>)Utilities.GetPrivateField(__instance, "_consumers");
 
-                __result = __result + "\n";
-                __result = __result + string.Format("Actual Max Turn Rate: {0:0.##} deg/s", finalTrueMaxTurnRate);
-                if (modifierTrueMaxTurnRate != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifierTrueMaxTurnRate, false) + ")";
+				TextMeshProUGUI detailText = (TextMeshProUGUI)Utilities.GetPrivateField(__instance, "_detailText");
 
-                __result = __result + "\n";
-                __result = __result + string.Format("Estimated 180 Turn: {0:0} seconds", finalTimeToTurn180);
-                if (modifierTimeToTurn180 != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifierTimeToTurn180, true) + ")";
+				//Debug.Log("ALL POWER CONSUMERS");
+				//foreach (HullComponent component in consumers)
+				//{
+				//	Debug.Log(" - " + component.ComponentName);
+				//}
+				
+                int basepower = ShowHiddenStats.GetBaselinePowerRequirement(ref consumers);
+				int defpower = ShowHiddenStats.GetDefensivePowerRequirement(ref consumers);
+				int offpower = ShowHiddenStats.GetOffensivePowerRequirement(ref consumers);
 
-                __result = __result + "\n";
-                __result = __result + string.Format("Estimated 180 Roll: {0:0} seconds", finalTimeToRoll180);
-                if (modifierTimeToRoll180 != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifierTimeToRoll180, true) + ")";
-            }
-        }
-    }
+                string baseprefix = "Constant Power Draw: ";
+                string defprefix = "Defensive Power Draw: ";
+                string offprefix = "Offensive Power Draw: ";
 
-    [HarmonyPatch(typeof(BaseHull), "EditorFormatWeaponStats")]
-    class Patch_BaseHull_EditorFormatWeaponStats
-    {
-        static void Postfix(ref BaseHull __instance, ref string __result)
-        {
-            List<IWeapon> weapons = __instance.CollectComponents<IWeapon>();
-
-            //Debug.Log("SHS AMMOSUMMARY start");
-
-            if (weapons.Count == 0) return;
-            
-            string headerText = string.Concat(new string[]
-            {
-                "<color=",
-                GameColors.YellowTextColor,
-                "><b>",
-                "Calculated Firing Time",
-                "</b></color>",
-                "\n"
-            });
-
-            string ammoSummaryText = headerText;
-
-            bool anyMunitions = false;
-
-            //Debug.Log("SHS AMMOSUMMARY pre-foreach");
-
-            foreach (IMunition munition in BundleManager.Instance.AllMunitions)
-            {
-                //Debug.Log("SHS AMMOSUMMARY munition: " + munition.MunitionName);
-
-                int numLoaded = __instance.MyShip.CountAmmoType(munition);
-                
-                if (numLoaded > 0)
+				string baseline = baseprefix + basepower + " kW";
+                if (basepower > __instance.TotalAvailable)
                 {
-                    //Debug.Log("SHS AMMOSUMMARY munition loaded");
+                    baseline = baseprefix + "<color=red>" + basepower + " kW" + "</color>";
+				}
 
-                    float totalFireRate = 0;
+				string defensive = defprefix + (basepower + defpower) + " kW";
+				if ((basepower + defpower) > __instance.TotalAvailable)
+				{
+					defensive = defprefix + "<color=red>" + (basepower + defpower) + " kW" + "</color>";
+				}
 
-                    foreach (IWeapon weapon in weapons)
-                    {
-                        //Debug.Log("SHS AMMOSUMMARY weapon: " + weapon.WepName);
+				string offensive = offprefix + (basepower + offpower) + " kW";
+				if ((basepower + offpower) > __instance.TotalAvailable)
+				{
+					offensive = offprefix + "<color=red>" + (basepower + offpower) + " kW" + "</color>";
+				}
 
-                        if (weapon.IsAmmoCompatible(munition))
-                        {
-                            if (weapon is DiscreteWeaponComponent discreteWeapon)
-                            {
-                                totalFireRate += ShowHiddenStats.calculateRoundsPerMinute(discreteWeapon);
-                            }
-                            if (weapon is ContinuousWeaponComponent continuousWeapon)
-                            {
-                                totalFireRate += ShowHiddenStats.calculateRoundsPerMinute(continuousWeapon);
-                            }
-                        }
-                    }
+				editorDetails = baseline + "\n" + offensive + "\n" + defensive + "\n" + "\n" + editorDetails;
+				Utilities.SetPrivateField(__instance, "_editorDetails", editorDetails);
+			}
+		}
+	}
 
-                    //Debug.Log("SHS AMMOSUMMARY rpm: " + totalFireRate);
+	[HarmonyPatch(typeof(LightweightMunitionBase), "GetDetailText")]
+	class Patch_LightweightMunitionBase_GetDetailText
+	{
+		static void Postfix(ref LightweightMunitionBase __instance, ref string __result)
+		{
+			float armorDamageRadius = (float)Utilities.GetPrivateField(__instance, "_armorDamageRadius");
+			float randomEffectMultiplier = (float)Utilities.GetPrivateField(__instance, "_randomEffectMultiplier");
+			float overpenDamageMultiplier = (float)Utilities.GetPrivateField(__instance, "_overpenDamageMultiplier");
+			float crewVulnerabilityMultiplier = (float)Utilities.GetPrivateField(__instance, "_crewVulnerabilityMultiplier");
 
-                    if (totalFireRate > 0)
-                    {
-                        ammoSummaryText = ammoSummaryText + munition.MunitionName + ": " + string.Format("{0:0} minutes", numLoaded / totalFireRate);
-                        ammoSummaryText = ammoSummaryText + "\n";
+			if (armorDamageRadius > 0)
+			{
+				__result = __result + "\n" + "Armor Shredding Radius: " + armorDamageRadius + " m";
+			}
+			if (overpenDamageMultiplier < 1)
+			{
+				__result = __result + "\n" + "Overpenetration Damage: " + (overpenDamageMultiplier * 100) + " %";
+			}
+			if (randomEffectMultiplier != 1f)
+			{
+				randomEffectMultiplier = (randomEffectMultiplier - 1) * 100;
+				string prefix = (randomEffectMultiplier < 0) ? "" : "+";
+				__result = __result + "\n" + "Crit Chance Modifier: " + prefix + randomEffectMultiplier + " %";
+			}
+			if (crewVulnerabilityMultiplier != 1f)
+			{
+				crewVulnerabilityMultiplier = (crewVulnerabilityMultiplier - 1) * 100;
+				string prefix = (crewVulnerabilityMultiplier < 0) ? "" : "+";
+				__result = __result + "\n" + "Crew Damage Modifier: " + prefix + crewVulnerabilityMultiplier + " %";
+			}
 
-                        anyMunitions = true;
-                    }
-                }
-            }
-
-            //Debug.Log("SHS AMMOSUMMARY aft-foreach");
-
-            ammoSummaryText = ammoSummaryText + "\n";
-
-            if (anyMunitions)
+			if (__instance is LightweightSplashingShell)
             {
-                __result = ammoSummaryText + __result;
-            }
-        }
-    }
+				LightweightSplashingShell splashingShell = (LightweightSplashingShell)__instance;
 
-    [HarmonyPatch(typeof(LightweightMunitionBase), "GetDetailText")]
-    class Patch_LightweightMunitionBase_GetDetailText
-    {
-        static void Postfix(ref LightweightMunitionBase __instance, ref string __result)
-        {
-            float armorDamageRadius = (float)Utilities.GetPrivateField(__instance, "_armorDamageRadius");
-            float randomEffectMultiplier = (float)Utilities.GetPrivateField(__instance, "_randomEffectMultiplier");
-            float overpenDamageMultiplier = (float)Utilities.GetPrivateField(__instance, "_overpenDamageMultiplier");
-            float crewVulnerabilityMultiplier = (float)Utilities.GetPrivateField(__instance, "_crewVulnerabilityMultiplier");
+				bool componentDamageFallsOff = (bool)Utilities.GetPrivateField(splashingShell, "_componentDamageFallsOff");
+				AnimationCurve damageFalloff = (AnimationCurve)Utilities.GetPrivateField(splashingShell, "_damageFalloff");
+				float maxFlightTime = (float)Utilities.GetPrivateField(splashingShell, "_maxFlightTime");
+				float flightSpeed = (float)Utilities.GetPrivateField(splashingShell, "_flightSpeed");
 
-            ShowHiddenStats.AddArmorShreddingStat(ref __result, armorDamageRadius);
-            ShowHiddenStats.AddOverpenDamageStat(ref __result, overpenDamageMultiplier);
-            ShowHiddenStats.AddCriticalEventStat(ref __result, randomEffectMultiplier);
-            ShowHiddenStats.AddCrewDamageStat(ref __result, crewVulnerabilityMultiplier);
-        }
-    }
-
-    [HarmonyPatch(typeof(LightweightMunitionBase), "GetDamageStatsText")]
-    class Patch_LightweightMunitionBase_GetDamageStatsText
-    {
-        static void Postfix(ref LightweightMunitionBase __instance, ref string __result)
-        {
-            __result = __result.Replace("Penetration Depth", "Maximum Penetration Depth");
-
-            float overrideComponentSearchDistance = (float)Utilities.GetPrivateField(__instance, "_overrideComponentSearchDistance");
-            if (overrideComponentSearchDistance > 0)
-            {
-                if (__result.Contains("Maximum Penetration Depth"))
+				if (componentDamageFallsOff && damageFalloff != null)
                 {
-                    __result = __result.Remove(__result.IndexOf("Maximum Penetration Depth"));
+                    float maxRange = maxFlightTime * flightSpeed;
+
+					__result = __result + "\n";
+					__result = __result + "Damage and Penetration at Range:";
+
+					float[] distances = { maxRange * (1.0f / 4.0f), maxRange * (2.0f / 4.0f), maxRange * (3.0f / 4.0f), maxRange };
+
+					foreach (float distance in distances)
+					{
+						__result = __result + "\n";
+						float damage = damageFalloff.Evaluate(distance / maxRange) * 100;
+						__result = __result + string.Format(" - {0:N0}% at {1:0.00} km", damage, distance * 10f / 1000f);
+					}
+				}
+			}
+		}
+	}
+
+	[HarmonyPatch(typeof(LightweightMunitionBase), "GetDamageStatsText")]
+	class Patch_LightweightMunitionBase_GetDamageStatsText
+	{
+		static void Postfix(ref LightweightMunitionBase __instance, ref string __result)
+		{
+			__result = __result.Replace("Penetration Depth", "Maximum Penetration Depth");
+
+			float overrideComponentSearchDistance = (float)Utilities.GetPrivateField(__instance, "_overrideComponentSearchDistance");
+			if (overrideComponentSearchDistance > 0)
+			{
+				if (__result.Contains("Maximum Penetration Depth"))
+				{
+					__result = __result.Remove(__result.IndexOf("Maximum Penetration Depth"));
+				}
+
+				__result = __result + "Guaranteed Penetration Depth: " + (overrideComponentSearchDistance * 10) + " m" + "\n";
+			}
+
+			if (__instance is LightweightKineticShell)
+			{
+				LightweightKineticShell kineticShell = (LightweightKineticShell)__instance;
+
+				CastType castType = (CastType)Utilities.GetPrivateField(kineticShell, "_castType");
+
+                if (castType == CastType.RayCone)
+                {
+                    float componentDamage = (float)Utilities.GetPrivateField(kineticShell, "_componentDamage");
+                    float rayAngle = (float)Utilities.GetPrivateField(kineticShell, "_rayAngle");
+                    int rayCount = (int)Utilities.GetPrivateField(kineticShell, "_rayCount");
+
+                    __result = __result + "Damage Cone Angle: " + rayAngle + " degrees" + "\n";
+                    __result = __result + "Damage Ray Count: " + rayCount + "\n";
+                    __result = __result + "Damage Per Ray: " + (componentDamage / rayCount) + "\n";
                 }
+			}
+		}
+	}
 
-                __result = __result + "Guaranteed Penetration Depth: " + (overrideComponentSearchDistance * 10) + " m" + "\n";
-            }
-        }
-    }
-
-    [HarmonyPatch(typeof(ContinuousWeaponComponent), "GetFormattedStats")]
+	[HarmonyPatch(typeof(ContinuousWeaponComponent), "GetFormattedStats")]
     class Patch_ContinuousWeaponComponent_GetFormattedStats
     {
-        static void Postfix(ref ContinuousWeaponComponent __instance, ref string __result)
+        static void Postfix(ref ContinuousWeaponComponent __instance, ref List<ValueTuple<string, string>> rows)
         {
             Muzzle[] muzzles = (Muzzle[])Utilities.GetPrivateField(__instance, "_muzzles");
 
@@ -386,116 +683,83 @@ namespace ShowHiddenStats
             AnimationCurve damageFalloff = (AnimationCurve)Utilities.GetPrivateField(muzzles[0], "_powerFalloff");
             float maxRange = (float)Utilities.GetPrivateField(muzzles[0], "_raycastRange");
 
-            ShowHiddenStats.AddArmorShreddingStat(ref __result, armorDamageEffectSize);
-            ShowHiddenStats.AddCriticalEventStat(ref __result, randomEffectMultiplier);
-            ShowHiddenStats.AddCrewDamageStat(ref __result, crewVulnerabilityMultiplier);
-
-            ShowHiddenStats.AddDamageFalloffStat(ref __result, damageFalloff, maxRange);
-
-            __result = __result + "\n\n";
-        }
-    }
-
-    [HarmonyPatch(typeof(DiscreteWeaponComponent), "GetFormattedStats")]
-    class Patch_DiscreteWeaponComponent_GetFormattedStats
-    {
-        static void Postfix(ref DiscreteWeaponComponent __instance, ref string __result, ref int groupSize)
-        {
-            float baseRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true);
-            float finalRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance);
-
-            __result = __result + "Rate of Fire";
-            if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
-            __result = __result + ": ";
-
-            __result = __result + string.Format("{0:0.##} RPM", finalRoundsPerMinute * groupSize);
-
-            float modifier = (finalRoundsPerMinute / baseRoundsPerMinute) - 1.0f;
-            if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
-
-            __result = __result + "\n";
+			rows.Add(ShowHiddenStats.GetArmorShreddingStat(armorDamageEffectSize));
+			if (randomEffectMultiplier != 1f) rows.Add(ShowHiddenStats.GetCriticalEventStat(randomEffectMultiplier));
+			if (crewVulnerabilityMultiplier != 1f) rows.Add(ShowHiddenStats.GetCrewDamageStat(crewVulnerabilityMultiplier));
+			if (damageFalloff != null) rows.AddRange(ShowHiddenStats.GetDamageFalloffStat(damageFalloff, maxRange));
         }
     }
 
     [HarmonyPatch(typeof(BaseActiveSensorComponent), "GetFormattedStats")]
     class Patch_BaseActiveSensorComponent_GetFormattedStats
-    {
-        static void Postfix(ref BaseActiveSensorComponent __instance, ref string __result)
-        {
-            StatValue statMaxRange = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxRange");
+	{
+		static int RowsBeforeCurrent;
+
+		static bool Prefix(ref BaseActiveSensorComponent __instance, ref List<ValueTuple<string, string>> rows)
+		{
+			RowsBeforeCurrent = rows.Count;
+			return true;
+		}
+		
+		static void Postfix(ref BaseActiveSensorComponent __instance, ref List<ValueTuple<string, string>> rows)
+		{
+			StatValue statMaxRange = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxRange");
             StatValue statRadiatedPower = (StatValue)Utilities.GetPrivateField(__instance, "_statRadiatedPower");
             StatValue statAperture = (StatValue)Utilities.GetPrivateField(__instance, "_statAperture");
             StatValue statGain = (StatValue)Utilities.GetPrivateField(__instance, "_statGain");
             StatValue statSensitivity = (StatValue)Utilities.GetPrivateField(__instance, "_statSensitivity");
+            StatValue statMaxError = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxError");
 
-            __result = __result + "Detected by ELINT: " + string.Format("{0:0.## km}", statMaxRange.Value * 1.25f / 100f) + "\n";
-            __result = __result + "Effective Power: " + string.Format("{0:0.## GW}", statRadiatedPower.Value * statAperture.Value * statGain.Value / 1000000f) + "\n";
+			int insertionPoint1 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Signature Type");
+			rows.Insert(insertionPoint1, new ValueTuple<string, string>("Detected by ELINT", string.Format("{0:0.## km}", statMaxRange.Value * 1.25f / 100f)));
+
+			int insertionPoint2 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Sensitivity");
+			rows.Insert(insertionPoint2, new ValueTuple<string, string>("Overall Effective Output", string.Format("{0:0.## GW}", statRadiatedPower.Value * statAperture.Value * statGain.Value * statGain.Value / 1000000f)));
             
+			int insertionPoint3 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Can Lock");
+			rows.Insert(insertionPoint3, new ValueTuple<string, string>("Track Quality", "TQ" + SensorMath.CalculateTrackQuality(statMaxError.Value)));
+
             float[] signatures = { 1000, 2000, 3000, 5000, 7000, 9000, 12000 };
 
-            foreach (float signature in signatures)
+			rows.Add(new ValueTuple<string, string>("", ""));
+			rows.Add(new ValueTuple<string, string>("Detection Range by Signature Size", ""));
+
+			foreach (float signature in signatures)
             {
-                __result = __result + "\n";
+                double range = ShowHiddenStats.CalculateDetectionRange(signature, statRadiatedPower.Value, statGain.Value, statAperture.Value, statSensitivity.Value);
+                string rowHeader = " - Detection of " + signature + " m<sup>2</sup> Signature";
 
-                // = 100 * (power * gain^2 * aperture * signature / (4*PI())^2 / noise / 100)^0.25
-                double rangeToPowerLimit4 = signature * statGain.Value * statGain.Value * statRadiatedPower.Value * statAperture.Value / (16 * Math.PI * Math.PI) / 100f;
-                double rangeToPowerLimit = Math.Pow(rangeToPowerLimit4, (double)1 / 4) * 100f;
-
-                // = 10 * (power * gain^2 * aperture * signature * 0.000625 / PI()^2 / 10^(sensitivity / 10))^0.25
-                double rangeToSensitivityLimit4 = signature * statGain.Value * statGain.Value * statRadiatedPower.Value * statAperture.Value * 0.000625f / (Math.PI * Math.PI) / Math.Pow(10f, statSensitivity.Value / 10f);
-                double rangeToSensitivityLimit = Math.Pow(rangeToSensitivityLimit4, (double)1 / 4) * 10f;
-
-                if (rangeToPowerLimit < 0 || rangeToSensitivityLimit < 0)
-                {
-                    Debug.LogError(rangeToPowerLimit + " vs " + rangeToSensitivityLimit);
-                    break;
-                }
-
-                double range = Math.Min(rangeToPowerLimit, rangeToSensitivityLimit);
-
-                if (range >= statMaxRange.Value * 10f)
-                {
-                    __result = __result + "Detection of " + signature + " m^2 Signature: " + string.Format("{0:0.## km}", statMaxRange.Value / 100f);
+				if (range >= statMaxRange.Value * 10f)
+				{
+					rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange.Value / 100f)));
                 }
                 else
-                {
-                    __result = __result + "Detection of " + signature + " m^2 Signature: " + string.Format("{0:0.## km}", range / 1000f);
+				{
+					rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
                 }
             }
 
-            __result = __result + "\n";
-        }
+			rows.Add(new ValueTuple<string, string>("", ""));
+		}
     }
 
-    [HarmonyPatch(typeof(HullComponent), "GetFormattedStats", typeof(bool), typeof(int))]
+	[HarmonyPatch(typeof(HullComponent), "GetFormattedStats", typeof(List<ValueTuple<string, string>>), typeof(bool), typeof(int))]
     class Patch_HullComponent_GetFormattedStats
     {
-        static void Postfix(ref HullComponent __instance, ref bool full, ref string __result)
+        static void Postfix(ref HullComponent __instance, ref List<ValueTuple<string, string>> rows, ref bool full)
         {
             if (!full) return;
 
-            StatValue statMaxHP = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxHP");
-            StatValue statDamageThreshold = (StatValue)Utilities.GetPrivateField(__instance, "_statDamageThreshold");
-            StatValue statRareDebuffChance = (StatValue)Utilities.GetPrivateField(__instance, "_statRareDebuffChance");
-            List<ComponentDebuff> rareDebuffTable = (List<ComponentDebuff>)Utilities.GetPrivateField(__instance, "_rareDebuffTable");
-            bool reinforced = (bool)Utilities.GetPrivateField(__instance, "_reinforced");
-            float mass = (float)Utilities.GetPrivateField(__instance, "_mass");
             float functioningThreshold = (float)Utilities.GetPrivateField(__instance, "_functioningThreshold");
             Ships.Priority dcPriority = (Ships.Priority)Utilities.GetPrivateField(__instance, "_dcPriority");
 
-            __result = string.Format("{0}\nHitpoints to Function: {1}\n{2}{3}\n{6}\nMass: {4} Tonnes\n{5}", new object[]
-            {
-                statMaxHP.FullTextWithLink,
-                (int)functioningThreshold,
-                statDamageThreshold.FullTextWithLink,
-                reinforced ? " (Reinforced)" : "",
-                mass,
-                (rareDebuffTable.Count > 0) ? (statRareDebuffChance.FullTextWithLink + "\n") : "",
-                "DC Priority: " + dcPriority.ToString()
-            });
-        }
+			int insertionPoint = rows.FindIndex(tuple => tuple.Item1 == "Damage Threshold");
+			rows.Insert(insertionPoint, new ValueTuple<string, string>("Hitpoints to Function", ((int)functioningThreshold).ToString()));
+			rows.Add(new ValueTuple<string, string>("DC Priority", dcPriority.ToString()));
+		}
     }
-    /*
+
+	/*
     [HarmonyPatch(typeof(FriendlyShipItem), "HandleStructureBroken")]
     class Patch_FriendlyShipItem_HandleStructureBroken
     {
@@ -577,6 +841,74 @@ namespace ShowHiddenStats
         }
     }
     */
+
+	/*
+    [HarmonyPatch(typeof(DiscreteWeaponComponent), "GetFormattedStats")]
+    class Patch_DiscreteWeaponComponent_GetFormattedStats
+    {
+        static void Postfix(ref DiscreteWeaponComponent __instance, ref string __result, ref int groupSize)
+        {
+            float baseRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true);
+            float finalRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance);
+
+            //__result = __result + "Rate of Fire";
+            //if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+            //__result = __result + ": ";
+
+            //__result = __result + string.Format("{0:0.##} RPM", finalRoundsPerMinute * groupSize);
+
+            float modifier = (finalRoundsPerMinute / baseRoundsPerMinute) - 1.0f;
+            //if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
+
+            //__result = __result + "\n";
+
+            string damageText = "";
+            bool anyOffensiveAmmo = false;
+            foreach (IMunition munition in BundleManager.Instance.AllMunitions)
+            {
+                if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
+                {
+                    damageText = damageText + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
+                    anyOffensiveAmmo = true;
+                }
+            }
+
+            if (!anyOffensiveAmmo)
+            {
+                return;
+            }
+
+            __result = __result + "Sustained Damage";
+            if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+            if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
+            __result = __result + "\n";
+            __result = __result + damageText;
+
+            int magazineSize = (int)Utilities.GetPrivateField(__instance, "_magazineSize");
+            if (magazineSize > 1)
+            {
+                float baseBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true, true);
+                float finalBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, false, true);
+                float burstModifier = (finalBurstRoundsPerMinute / baseBurstRoundsPerMinute) - 1.0f;
+
+                __result = __result + "Burst Damage";
+                if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+                if (burstModifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(burstModifier, false) + ")";
+                __result = __result + "\n";
+
+                foreach (IMunition munition in BundleManager.Instance.AllMunitions)
+                {
+                    if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
+                    {
+                        __result = __result + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalBurstRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
+                    }
+                }
+
+                __result = __result + "\n";
+            }
+        }
+    }
+    */
 }
 
 
@@ -650,3 +982,87 @@ R^4 * (1 + (J*R / R * G)) = SIG * G^2 * P * A / (4*PI)^2 / 10^(-0.07 * ARR)
 R^4 + (R^3 * J*R * G) = SIG * G^2 * P * A / (4*PI)^2 / 10^(-0.07 * ARR)
 
  * */
+
+/*
+	[HarmonyPatch(typeof(LightweightMunitionBase), "GetDetailText")]
+	class Patch_LightweightMunitionBase_GetDetailText
+	{
+		static void Postfix(ref LightweightMunitionBase __instance, ref List<ValueTuple<string, string>> __result)
+		{
+			float armorDamageRadius = (float)Utilities.GetPrivateField(__instance, "_armorDamageRadius");
+			float randomEffectMultiplier = (float)Utilities.GetPrivateField(__instance, "_randomEffectMultiplier");
+			float overpenDamageMultiplier = (float)Utilities.GetPrivateField(__instance, "_overpenDamageMultiplier");
+			float crewVulnerabilityMultiplier = (float)Utilities.GetPrivateField(__instance, "_crewVulnerabilityMultiplier");
+
+			__result.Add(ShowHiddenStats.GetArmorShreddingStat(armorDamageRadius));
+			__result.Add(ShowHiddenStats.GetOverpenDamageStat(overpenDamageMultiplier));
+			if (randomEffectMultiplier != 1f) __result.Add(ShowHiddenStats.GetCriticalEventStat(randomEffectMultiplier));
+			if (crewVulnerabilityMultiplier != 1f) __result.Add(ShowHiddenStats.GetCrewDamageStat(crewVulnerabilityMultiplier));
+		}
+	}
+
+	[HarmonyPatch(typeof(LightweightSplashingShell), "GetDetailText")]
+	class Patch_LightweightSplashingShell_GetDetailText
+	{
+		static void Postfix(ref LightweightSplashingShell __instance, ref List<ValueTuple<string, string>> __result)
+		{
+			bool componentDamageFallsOff = (bool)Utilities.GetPrivateField(__instance, "_componentDamageFallsOff");
+			AnimationCurve damageFalloff = (AnimationCurve)Utilities.GetPrivateField(__instance, "_damageFalloff");
+			float maxFlightTime = (float)Utilities.GetPrivateField(__instance, "_maxFlightTime");
+			float flightSpeed = (float)Utilities.GetPrivateField(__instance, "_flightSpeed");
+
+			if (componentDamageFallsOff && damageFalloff != null) __result.AddRange(ShowHiddenStats.GetDamageFalloffStat(damageFalloff, maxFlightTime * flightSpeed));
+		}
+	}
+*/
+
+/*
+		public static float CalculateRoundsPerMinute(DiscreteWeaponComponent weapon, bool useBaseStats = false, bool burstOnly = false)
+        {
+            int magazineSize = (int)Utilities.GetPrivateField(weapon, "_magazineSize");
+
+            if (burstOnly && magazineSize <= 1)
+            {
+                Debug.LogError("(SHS) error in rate of fire calculation, burst firerate requested on a weapon with no autoloader: " + weapon.WepName);
+                return 0;
+            }
+            
+            StatValue statRecycleTime = (StatValue)Utilities.GetPrivateField(weapon, "_statRecycleTime");
+            StatValue statReloadTime = (StatValue)Utilities.GetPrivateField(weapon, "_statReloadTime");
+
+            float fullCycleTime;
+
+            if (useBaseStats)
+            {
+                fullCycleTime = (magazineSize - 1) * statRecycleTime.BaseValue;
+                if (!burstOnly) fullCycleTime += statReloadTime.BaseValue;
+            }
+            else
+            {
+                fullCycleTime = (magazineSize - 1) * statRecycleTime.Value;
+                if (!burstOnly) fullCycleTime += statReloadTime.Value;
+            }
+
+            float secondsPerRound = fullCycleTime / magazineSize;
+            float roundsPerMinute = 60 / secondsPerRound;
+
+            return roundsPerMinute;
+        }
+
+        public static float CalculateRoundsPerMinute(ContinuousWeaponComponent weapon)
+        {
+            Muzzle[] muzzles = (Muzzle[])Utilities.GetPrivateField(weapon, "_muzzles");
+
+            float roundsPerMinute = 0;
+
+            foreach (Muzzle muzzle in muzzles)
+            {
+                if (muzzle is IFireRateMuzzle rofMuzzle)
+                {
+                    roundsPerMinute += rofMuzzle.RoundsPerMinute;
+                }
+            }
+
+            return roundsPerMinute;
+        }
+*/
