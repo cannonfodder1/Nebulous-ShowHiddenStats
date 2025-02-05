@@ -9,6 +9,8 @@ using Modding;
 using Munitions;
 using Ships;
 using Ships.Controls;
+using SmallCraft;
+using SmallCraft.Components;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,6 +18,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using Utility;
+using static SmallCraft.SerializedCraftLoadout;
 
 namespace ShowHiddenStats
 {
@@ -416,20 +419,22 @@ namespace ShowHiddenStats
             StatValue statIdentityWorkRequired = (StatValue)Utilities.GetPrivateField(__instance, "_statIdentityWorkRequired");
 
             string intelSummary = "";
-            intelSummary = intelSummary + "Time Unidentified vs Basic CIC: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 1) + "\n";
-            intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 4) + "\n";
-            intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 15) + "\n";
+            intelSummary = intelSummary + "Time Unidentified vs Basic CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 1) + "\n";
+            intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 4) + "\n";
+            intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 15) + "\n";
 
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Basic CIC", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 1)));
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Citadel CIC", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 4)));
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Intel Centre", string.Format("{0:0} seconds", statIdentityWorkRequired.Value / 15)));
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Basic CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 1)));
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Citadel CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 4)));
+			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Intel Centre", string.Format("{0:0} s", statIdentityWorkRequired.Value / 15)));
 
 
 
 			StatValue sigMultRadar = (StatValue)Utilities.GetPrivateField(__instance, "_statSigMultRadar");
 			List<HullComponent> searchRadars = BundleManager.Instance.AllComponents.ToList().FindAll(x => x is BaseActiveSensorComponent);
 
-			if (searchRadars.Count > 0) sigs.Add(new ValueTuple<string, string>("Detected At Range", ""));
+			insertionPoint = sigs.FindIndex(tuple => tuple.Item1 == "Wake Signature Strength");
+			if (searchRadars.Count > 0) sigs.Insert(insertionPoint, new ValueTuple<string, string>("Detected At Range", ""));
+			insertionPoint++;
 
 			foreach (HullComponent component in searchRadars)
 			{
@@ -448,13 +453,30 @@ namespace ShowHiddenStats
 
 					if (range >= statMaxRange * 10f)
 					{
-						sigs.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange / 100f)));
+						sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange / 100f)));
 					}
 					else
 					{
-						sigs.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
+						sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
 					}
 				}
+			}
+
+
+
+			StatValue statSigPowerWake = (StatValue)Utilities.GetPrivateField(__instance, "_statSigPowerWake");
+			string notValidated = "<color=" + GameColors.GreenTextColor + ">SAFE</color>";
+			string yesValidated = "<color=" + GameColors.RedTextColor + ">VALIDATED</color>";
+
+			insertionPoint = sigs.FindIndex(tuple => tuple.Item1 == "Wake Signature Strength") + 1;
+			sigs.Insert(insertionPoint, new ValueTuple<string, string>("Fore-Aspect Validated by THERM", statSigPowerWake.Value >= 175.0f ? yesValidated : notValidated));
+			insertionPoint++;
+
+			if (statSigPowerWake.Value >= 175.0f)
+			{
+				float percentToDecay = 1f - (175.0f / statSigPowerWake.Value);
+				sigs.Insert(insertionPoint, new ValueTuple<string, string>("Validated After Engine Shutoff", string.Format("{0:0.## s}", percentToDecay * 30.0f)));
+				insertionPoint++;
 			}
 		}
     }
@@ -509,11 +531,11 @@ namespace ShowHiddenStats
 				if (modifierTrueMaxTurnRate != 0.0f) actualTurnStr = actualTurnStr + " (" + StatModifier.FormatModifierColored(modifierTrueMaxTurnRate, false) + ")";
 				__result.Add(new ValueTuple<string, string>("Actual Max Turn Rate", actualTurnStr));
 
-				string estimatedTurnStr = string.Format("{0:0} seconds", finalTimeToTurn180);
+				string estimatedTurnStr = string.Format("{0:0} s", finalTimeToTurn180);
 				if (modifierTimeToTurn180 != 0.0f) estimatedTurnStr = estimatedTurnStr + " (" + StatModifier.FormatModifierColored(modifierTimeToTurn180, true) + ")";
 				__result.Add(new ValueTuple<string, string>("Estimated 180 Turn", estimatedTurnStr));
 
-				string estimatedRollStr = string.Format("{0:0} seconds", finalTimeToRoll180);
+				string estimatedRollStr = string.Format("{0:0} s", finalTimeToRoll180);
 				if (modifierTimeToRoll180 != 0.0f) estimatedRollStr = estimatedRollStr + " (" + StatModifier.FormatModifierColored(modifierTimeToRoll180, true) + ")";
 				__result.Add(new ValueTuple<string, string>("Estimated 180 Roll", estimatedRollStr));
 			}
@@ -759,156 +781,245 @@ namespace ShowHiddenStats
 		}
     }
 
+	[HarmonyPatch(typeof(Spacecraft), "GetGeneralStatsBlock")]
+	class Patch_Spacecraft_GetGeneralStatsBlock
+	{
+		static void Postfix(ref Spacecraft __instance, ref List<ValueTuple<string, string>> __result)
+		{
+			if (__instance.CurrentlyEditingLoadout != null)
+			{
+				float totalFuel;
+				float work = __instance.CalculateLoadoutChangeVolume(__instance.CurrentlyEditingLoadout, true, true, out totalFuel);
+				int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "Pre-Flight Time");
+				__result.Insert(insertionPoint, new ValueTuple<string, string>("Pre-Flight Work", string.Format("{0:0.##}", work)));
+
+				SpacecraftSocket[] sockets = (SpacecraftSocket[])Utilities.GetPrivateField(__instance, "_sockets");
+				if (sockets != null && __instance.CurrentlyEditingLoadout.Elements != null)
+				{
+					Dictionary<string, int> totalAmmo = new Dictionary<string, int>();
+
+					foreach (SpacecraftSocket socket in sockets)
+					{
+						Dictionary<string, int> socketAmmo = new Dictionary<string, int>();
+						GeneralLoadoutElement element = __instance.CurrentlyEditingLoadout.Elements.FirstOrDefault((GeneralLoadoutElement x) => x.SocketKey == socket.SocketKey);
+
+						socket.CollectAmmoTotalsForLoadout(null, ref socketAmmo, element);
+
+						foreach (KeyValuePair<string, int> ammo in socketAmmo)
+						{
+							if (totalAmmo.ContainsKey(ammo.Key))
+							{
+								totalAmmo[ammo.Key] += ammo.Value;
+							}
+							else
+							{
+								totalAmmo.Add(ammo.Key, ammo.Value);
+							}
+						}
+					}
+
+					SortedDictionary<string, int> sortedAmmo = new SortedDictionary<string, int>();
+					float totalPointCost = 0.0f;
+
+					foreach (KeyValuePair<string, int> ammo in totalAmmo)
+					{
+						IMunition munition = __instance.FromFleet.AvailableMunitions.GetMunition(ammo.Key);
+
+						totalPointCost += (float)munition.PointCost * (float)ammo.Value / (float)munition.PointDivision;
+						sortedAmmo.Add(munition.MunitionName, ammo.Value);
+					}
+
+					__result.Add(new ValueTuple<string, string>("", ""));
+					__result.Add(new ValueTuple<string, string>("Inventory", ""));
+
+					foreach (KeyValuePair<string, int> ammo in sortedAmmo)
+					{
+						__result.Add(new ValueTuple<string, string>(" - " + ammo.Key, ammo.Value.ToString()));
+					}
+
+					__result.Add(new ValueTuple<string, string>("Cost To Arm", totalPointCost.ToString("N2")));
+				}
+			}
+		}
+	}
+
+	[HarmonyPatch(typeof(BaseCraftMovement), "GetFlightStatsBlock")]
+	class Patch_BaseCraftMovement_GetFlightStatsBlock
+	{
+		static void Postfix(ref BaseCraftMovement __instance, ref List<ValueTuple<string, string>> __result, ref float? loadoutMass)
+		{
+			float[] modeThrottles = (float[])Utilities.GetPrivateField(__instance, "_modeThrottles");
+			float baseMass = (float)Utilities.GetPrivateField(__instance, "_baseMass");
+			float thrustToWeight = (modeThrottles[2] * __instance.MotorPower) / (baseMass + loadoutMass.GetValueOrDefault());
+			__result.Add(new ValueTuple<string, string>("Thrust-to-Weight", thrustToWeight.ToString("N2")));
+		}
+	}
+
+	[HarmonyPatch(typeof(Spacecraft), "GetSensorStatsBlock")]
+	class Patch_Spacecraft_GetSensorStatsBlock
+	{
+		static void Postfix(ref Spacecraft __instance, ref List<ValueTuple<string, string>> __result)
+		{
+			ISignature radarSignature = (ISignature)Utilities.GetPrivateField(__instance, "_radarSignature");
+
+			if (radarSignature != null)
+			{
+				__result.Insert(0, new ValueTuple<string, string>("Radar Signature (Actual)", (radarSignature.MaxSigSize * 10) + "m<sup>2</sup>"));
+				__result.Insert(0, new ValueTuple<string, string>("Radar Signature (Listed)", radarSignature.MaxSigSize + "m<sup>2</sup>"));
+			}
+		}
+	}
+
 	/*
-    [HarmonyPatch(typeof(FriendlyShipItem), "HandleStructureBroken")]
-    class Patch_FriendlyShipItem_HandleStructureBroken
-    {
-        static bool Prefix(ref FriendlyShipItem __instance)
-        {
-            ShipController ship = (ShipController)Utilities.GetPrivateField(__instance, "_ship");
-            if (ship != null)
-            {
-                HullStructure structure = ship.Ship.Hull._structure;
+	[HarmonyPatch(typeof(FriendlyShipItem), "HandleStructureBroken")]
+	class Patch_FriendlyShipItem_HandleStructureBroken
+	{
+		static bool Prefix(ref FriendlyShipItem __instance)
+		{
+			ShipController ship = (ShipController)Utilities.GetPrivateField(__instance, "_ship");
+			if (ship != null)
+			{
+				HullStructure structure = ship.Ship.Hull._structure;
 
-                if (structure != null)
-                {
-                    //Debug.Log("SHS STRUCTURE: hull valid");
-                    StatusIcon structureIcon = (StatusIcon)Utilities.GetPrivateField(__instance, "_structureIcon");
+				if (structure != null)
+				{
+					//Debug.Log("SHS STRUCTURE: hull valid");
+					StatusIcon structureIcon = (StatusIcon)Utilities.GetPrivateField(__instance, "_structureIcon");
 
-                    if (structureIcon != null)
-                    {
-                        //Debug.Log("SHS STRUCTURE: icon valid");
-                        structureIcon.Show();
-                        structureIcon.ChangedFlash();
+					if (structureIcon != null)
+					{
+						//Debug.Log("SHS STRUCTURE: icon valid");
+						structureIcon.Show();
+						structureIcon.ChangedFlash();
 
-                        float maxHealth = (float)Utilities.GetPrivateField(structure, "_maxHealth");
-                        Graphic graphic = (Graphic)Utilities.GetPrivateField(structureIcon, "_graphic");
+						float maxHealth = (float)Utilities.GetPrivateField(structure, "_maxHealth");
+						Graphic graphic = (Graphic)Utilities.GetPrivateField(structureIcon, "_graphic");
 
-                        //Debug.Log("SHS STRUCTURE: " + structure.CurrentHealth + "/" + maxHealth);
-                        if (structure.IsDestroyed)
-                        {
-                            structureIcon.UpdateTooltipText("Structure Broken: damage dealt to empty areas of the ship will be transferred to intact components");
-                            
-                            graphic.color = GameColors.Red;
-                        }
-                        else
-                        {
-                            structureIcon.UpdateTooltipText("Structural Integrity: " + string.Format("{0:0}%", 100 * structure.CurrentHealth / maxHealth) + " " + string.Format("({0:0}/{1:0})", structure.CurrentHealth, maxHealth));
+						//Debug.Log("SHS STRUCTURE: " + structure.CurrentHealth + "/" + maxHealth);
+						if (structure.IsDestroyed)
+						{
+							structureIcon.UpdateTooltipText("Structure Broken: damage dealt to empty areas of the ship will be transferred to intact components");
 
-                            if (structure.CurrentHealth / maxHealth < 0.5f)
-                            {
-                                graphic.color = GameColors.Yellow;
-                            }
-                            else
-                            {
-                                graphic.color = GameColors.Green;
-                            }
-                        }
-                    }
-                }
-            }
+							graphic.color = GameColors.Red;
+						}
+						else
+						{
+							structureIcon.UpdateTooltipText("Structural Integrity: " + string.Format("{0:0}%", 100 * structure.CurrentHealth / maxHealth) + " " + string.Format("({0:0}/{1:0})", structure.CurrentHealth, maxHealth));
 
-            return false;
-        }
-    }
-    
-    [HarmonyPatch(typeof(HullStructure), "Game.ISubDamageable.DoDamage")]
-    class Patch_HullStructure_DoDamage
-    {
-        static void Postfix(ref HullStructure __instance, ref bool __result)
-        {
-            if (__result == true)
-            {
-                return;
-            }
+							if (structure.CurrentHealth / maxHealth < 0.5f)
+							{
+								graphic.color = GameColors.Yellow;
+							}
+							else
+							{
+								graphic.color = GameColors.Green;
+							}
+						}
+					}
+				}
+			}
 
-            if (SkirmishGameManager.Instance.IsSoloGame)
-            {
-                FriendlyShipList shipList = SkirmishGameManager.Instance.UI.MyShipList;
-                List<FriendlyShipItem> shipItems = (List<FriendlyShipItem>)Utilities.GetPrivateField(shipList, "_ships");
-                Ship ship = (Ship)Utilities.GetPrivateField(__instance, "_ship");
+			return false;
+		}
+	}
 
-                foreach (FriendlyShipItem shipItem in shipItems)
-                {
-                    if (shipItem.Ship.Ship == ship)
-                    {
-                        object[] parameters = { __result };
-                        Utilities.CallPrivateMethod(shipItem, "HandleStructureBroken", parameters);
-                        return;
-                    }
-                }
-            }
-        }
-    }
-    */
+	[HarmonyPatch(typeof(HullStructure), "Game.ISubDamageable.DoDamage")]
+	class Patch_HullStructure_DoDamage
+	{
+		static void Postfix(ref HullStructure __instance, ref bool __result)
+		{
+			if (__result == true)
+			{
+				return;
+			}
+
+			if (SkirmishGameManager.Instance.IsSoloGame)
+			{
+				FriendlyShipList shipList = SkirmishGameManager.Instance.UI.MyShipList;
+				List<FriendlyShipItem> shipItems = (List<FriendlyShipItem>)Utilities.GetPrivateField(shipList, "_ships");
+				Ship ship = (Ship)Utilities.GetPrivateField(__instance, "_ship");
+
+				foreach (FriendlyShipItem shipItem in shipItems)
+				{
+					if (shipItem.Ship.Ship == ship)
+					{
+						object[] parameters = { __result };
+						Utilities.CallPrivateMethod(shipItem, "HandleStructureBroken", parameters);
+						return;
+					}
+				}
+			}
+		}
+	}
+	*/
 
 	/*
-    [HarmonyPatch(typeof(DiscreteWeaponComponent), "GetFormattedStats")]
-    class Patch_DiscreteWeaponComponent_GetFormattedStats
-    {
-        static void Postfix(ref DiscreteWeaponComponent __instance, ref string __result, ref int groupSize)
-        {
-            float baseRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true);
-            float finalRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance);
+	[HarmonyPatch(typeof(DiscreteWeaponComponent), "GetFormattedStats")]
+	class Patch_DiscreteWeaponComponent_GetFormattedStats
+	{
+		static void Postfix(ref DiscreteWeaponComponent __instance, ref string __result, ref int groupSize)
+		{
+			float baseRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true);
+			float finalRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance);
 
-            //__result = __result + "Rate of Fire";
-            //if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
-            //__result = __result + ": ";
+			//__result = __result + "Rate of Fire";
+			//if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+			//__result = __result + ": ";
 
-            //__result = __result + string.Format("{0:0.##} RPM", finalRoundsPerMinute * groupSize);
+			//__result = __result + string.Format("{0:0.##} RPM", finalRoundsPerMinute * groupSize);
 
-            float modifier = (finalRoundsPerMinute / baseRoundsPerMinute) - 1.0f;
-            //if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
+			float modifier = (finalRoundsPerMinute / baseRoundsPerMinute) - 1.0f;
+			//if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
 
-            //__result = __result + "\n";
+			//__result = __result + "\n";
 
-            string damageText = "";
-            bool anyOffensiveAmmo = false;
-            foreach (IMunition munition in BundleManager.Instance.AllMunitions)
-            {
-                if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
-                {
-                    damageText = damageText + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
-                    anyOffensiveAmmo = true;
-                }
-            }
+			string damageText = "";
+			bool anyOffensiveAmmo = false;
+			foreach (IMunition munition in BundleManager.Instance.AllMunitions)
+			{
+				if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
+				{
+					damageText = damageText + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
+					anyOffensiveAmmo = true;
+				}
+			}
 
-            if (!anyOffensiveAmmo)
-            {
-                return;
-            }
+			if (!anyOffensiveAmmo)
+			{
+				return;
+			}
 
-            __result = __result + "Sustained Damage";
-            if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
-            if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
-            __result = __result + "\n";
-            __result = __result + damageText;
+			__result = __result + "Sustained Damage";
+			if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+			if (modifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(modifier, false) + ")";
+			__result = __result + "\n";
+			__result = __result + damageText;
 
-            int magazineSize = (int)Utilities.GetPrivateField(__instance, "_magazineSize");
-            if (magazineSize > 1)
-            {
-                float baseBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true, true);
-                float finalBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, false, true);
-                float burstModifier = (finalBurstRoundsPerMinute / baseBurstRoundsPerMinute) - 1.0f;
+			int magazineSize = (int)Utilities.GetPrivateField(__instance, "_magazineSize");
+			if (magazineSize > 1)
+			{
+				float baseBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, true, true);
+				float finalBurstRoundsPerMinute = ShowHiddenStats.calculateRoundsPerMinute(__instance, false, true);
+				float burstModifier = (finalBurstRoundsPerMinute / baseBurstRoundsPerMinute) - 1.0f;
 
-                __result = __result + "Burst Damage";
-                if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
-                if (burstModifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(burstModifier, false) + ")";
-                __result = __result + "\n";
+				__result = __result + "Burst Damage";
+				if (groupSize > 1) __result = __result + " (" + groupSize + "x)";
+				if (burstModifier != 0.0f) __result = __result + " (" + StatModifier.FormatModifierColored(burstModifier, false) + ")";
+				__result = __result + "\n";
 
-                foreach (IMunition munition in BundleManager.Instance.AllMunitions)
-                {
-                    if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
-                    {
-                        __result = __result + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalBurstRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
-                    }
-                }
+				foreach (IMunition munition in BundleManager.Instance.AllMunitions)
+				{
+					if (munition.Type == MunitionType.Ballistic && __instance.IsAmmoCompatible(munition))
+					{
+						__result = __result + string.Format(" - {0}: {1:N0}", munition.MunitionName, finalBurstRoundsPerMinute * groupSize * munition.DamageCharacteristics.ComponentDamage) + " DPS\n";
+					}
+				}
 
-                __result = __result + "\n";
-            }
-        }
-    }
-    */
+				__result = __result + "\n";
+			}
+		}
+	}
+	*/
 }
 
 
