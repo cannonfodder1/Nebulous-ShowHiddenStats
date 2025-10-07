@@ -407,76 +407,108 @@ namespace ShowHiddenStats
     [HarmonyPatch(typeof(BaseHull), "EditorFormatHullStats")]
     class Patch_BaseHull_EditorFormatHullStats
     {
-        static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> hull, ref List<ValueTuple<string, string>> sigs)
-        {
-			StatValue statInternalDensity = (StatValue)Utilities.GetPrivateField(__instance, "_statInternalDensity");
-
-            string internalDensity = "\n" + "Internal Density: " + statInternalDensity.Value + " " + statInternalDensity.Unit;
-
-			int insertionPoint = hull.FindIndex(tuple => tuple.Item1 == "Component DR");
-			hull.Insert(insertionPoint, new ValueTuple<string, string>("Internal Density", statInternalDensity.Value + " " + statInternalDensity.Unit));
-
-            StatValue statIdentityWorkRequired = (StatValue)Utilities.GetPrivateField(__instance, "_statIdentityWorkRequired");
-
-            string intelSummary = "";
-            intelSummary = intelSummary + "Time Unidentified vs Basic CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 1) + "\n";
-            intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 4) + "\n";
-            intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 15) + "\n";
-
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Basic CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 1)));
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Citadel CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 4)));
-			hull.Add(new ValueTuple<string, string>("Time Unidentified vs Intel Centre", string.Format("{0:0} s", statIdentityWorkRequired.Value / 15)));
-
-
-
-			StatValue sigMultRadar = (StatValue)Utilities.GetPrivateField(__instance, "_statSigMultRadar");
-			List<HullComponent> searchRadars = BundleManager.Instance.AllComponents.ToList().FindAll(x => x is BaseActiveSensorComponent);
-
-			insertionPoint = sigs.FindIndex(tuple => tuple.Item1 == "Wake Signature Strength");
-			if (searchRadars.Count > 0) sigs.Insert(insertionPoint, new ValueTuple<string, string>("Detected At Range", ""));
-			insertionPoint++;
-
-			foreach (HullComponent component in searchRadars)
+        static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> hull, ref List<ValueTuple<string, string>> sigs, ref bool showBreakdown)
+		{
+			try
 			{
-				BaseActiveSensorComponent searchRadar = (BaseActiveSensorComponent)component;
+				StatValue statInternalDensity = (StatValue)Utilities.GetPrivateField(__instance, "_statInternalDensity");
+				StatValue statMaxRepair = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxRepair");
 
-				if (searchRadar != null)
+				string internalDensity = "\n" + "Internal Density: " + statInternalDensity.Value + " " + statInternalDensity.Unit;
+
+				int insertionPoint = hull.FindIndex(tuple => tuple.Item1 == "$SHIPSTAT_COMPONENTDR");
+				hull.Insert(insertionPoint, new ValueTuple<string, string>("Internal Density", statInternalDensity.Value + " " + statInternalDensity.Unit));
+
+				string fullMaxRepStr = string.Format("{0:0} %", statMaxRepair.Value * 100f);
+				if (showBreakdown == false) // We are in the Add Ship menu
 				{
-					float statMaxRange = (float)Utilities.GetPrivateField(searchRadar, "_maxRange");
-					float radiatedPower = (float)Utilities.GetPrivateField(searchRadar, "_radiatedPower");
-					float apertureSize = (float)Utilities.GetPrivateField(searchRadar, "_apertureSize");
-					float gain = (float)Utilities.GetPrivateField(searchRadar, "_gain");
-					float sensitivity = (float)Utilities.GetPrivateField(searchRadar, "_sensitivity");
-
-					double range = ShowHiddenStats.CalculateDetectionRange(sigMultRadar.Value * 10f, radiatedPower, gain, apertureSize, sensitivity);
-					string rowHeader = " - " + searchRadar.ComponentName;
-
-					if (range >= statMaxRange * 10f)
+					float valueMaxRep = statMaxRepair.Value;
+					foreach (StatModifier modifier in __instance.BaseModifiers)
 					{
-						sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange / 100f)));
+						if (modifier.StatName == statMaxRepair.StatID.FullType)
+						{
+							valueMaxRep += modifier.Literal;
+						}
 					}
-					else
+
+					fullMaxRepStr = string.Format("{0:0} %", valueMaxRep * 100f);
+				}
+				else // We are in the fleet editor ship summary panel
+				{
+					float bonusMaxRep = (statMaxRepair.Value - statMaxRepair.BaseValue);
+					if (bonusMaxRep != 0f) fullMaxRepStr = fullMaxRepStr + " (" + StatModifier.FormatModifierColored(bonusMaxRep, false) + ")";
+				}
+
+				insertionPoint = hull.FindIndex(tuple => tuple.Item1 == "$SHIPSTAT_CREWCOMP_BASE");
+				hull.Insert(insertionPoint, new ValueTuple<string, string>("Max Repair", fullMaxRepStr));
+
+				StatValue statIdentityWorkRequired = (StatValue)Utilities.GetPrivateField(__instance, "_statIdentityWorkRequired");
+
+				string intelSummary = "";
+				intelSummary = intelSummary + "Time Unidentified vs Basic CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 1) + "\n";
+				intelSummary = intelSummary + "Time Unidentified vs Citadel CIC: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 4) + "\n";
+				intelSummary = intelSummary + "Time Unidentified vs Intel Centre: " + string.Format("{0:0} s", statIdentityWorkRequired.Value / 15) + "\n";
+
+				hull.Add(new ValueTuple<string, string>("Time Unidentified vs Basic CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 1)));
+				hull.Add(new ValueTuple<string, string>("Time Unidentified vs Citadel CIC", string.Format("{0:0} s", statIdentityWorkRequired.Value / 4)));
+				hull.Add(new ValueTuple<string, string>("Time Unidentified vs Intel Centre", string.Format("{0:0} s", statIdentityWorkRequired.Value / 15)));
+
+
+
+				StatValue sigMultRadar = (StatValue)Utilities.GetPrivateField(__instance, "_statSigMultRadar");
+				List<HullComponent> searchRadars = BundleManager.Instance.AllComponents.ToList().FindAll(x => x is BaseActiveSensorComponent);
+
+				insertionPoint = sigs.FindIndex(tuple => tuple.Item1 == "$SHIPSTAT_WAKESIG");
+				if (searchRadars.Count > 0)
+				{
+					sigs.Insert(insertionPoint, new ValueTuple<string, string>("Detected At Range", ""));
+					insertionPoint++;
+				}
+
+				foreach (HullComponent component in searchRadars)
+				{
+					BaseActiveSensorComponent searchRadar = (BaseActiveSensorComponent)component;
+
+					if (searchRadar != null)
 					{
-						sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
+						float statMaxRange = (float)Utilities.GetPrivateField(searchRadar, "_maxRange");
+						float radiatedPower = (float)Utilities.GetPrivateField(searchRadar, "_radiatedPower");
+						float apertureSize = (float)Utilities.GetPrivateField(searchRadar, "_apertureSize");
+						float gain = (float)Utilities.GetPrivateField(searchRadar, "_gain");
+						float sensitivity = (float)Utilities.GetPrivateField(searchRadar, "_sensitivity");
+
+						double range = ShowHiddenStats.CalculateDetectionRange(sigMultRadar.Value * 10f, radiatedPower, gain, apertureSize, sensitivity);
+						string rowHeader = " - " + searchRadar.ComponentName;
+
+						if (range >= statMaxRange * 10f)
+						{
+							sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange / 100f)));
+						}
+						else
+						{
+							sigs.Insert(insertionPoint, new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
+						}
 					}
 				}
+
+
+
+				StatValue statSigPowerWake = (StatValue)Utilities.GetPrivateField(__instance, "_statSigPowerWake");
+				string notValidated = "<color=" + GameColors.GreenTextColor + ">SAFE</color>";
+				string yesValidated = "<color=" + GameColors.RedTextColor + ">VALIDATED</color>";
+
+				sigs.Add(new ValueTuple<string, string>("Fore-Aspect Validated by THERM", statSigPowerWake.Value >= 175.0f ? yesValidated : notValidated));
+
+				if (statSigPowerWake.Value >= 175.0f)
+				{
+					float percentToDecay = 1f - (175.0f / statSigPowerWake.Value);
+
+					sigs.Add(new ValueTuple<string, string>("Validated After Engine Shutoff", string.Format("{0:0.## s}", percentToDecay * 30.0f)));
+				}
 			}
-
-
-
-			StatValue statSigPowerWake = (StatValue)Utilities.GetPrivateField(__instance, "_statSigPowerWake");
-			string notValidated = "<color=" + GameColors.GreenTextColor + ">SAFE</color>";
-			string yesValidated = "<color=" + GameColors.RedTextColor + ">VALIDATED</color>";
-
-			insertionPoint = sigs.FindIndex(tuple => tuple.Item1 == "Wake Signature Strength") + 1;
-			sigs.Insert(insertionPoint, new ValueTuple<string, string>("Fore-Aspect Validated by THERM", statSigPowerWake.Value >= 175.0f ? yesValidated : notValidated));
-			insertionPoint++;
-
-			if (statSigPowerWake.Value >= 175.0f)
+			catch (Exception e)
 			{
-				float percentToDecay = 1f - (175.0f / statSigPowerWake.Value);
-				sigs.Insert(insertionPoint, new ValueTuple<string, string>("Validated After Engine Shutoff", string.Format("{0:0.## s}", percentToDecay * 30.0f)));
-				insertionPoint++;
+				Debug.LogError("Show Hidden Stats has encountered a fatal error in the EditorFormatHullStats() override and is aborting to allow the fleet file to be loaded. Please relay this to the mod author. Here follows the root error:\n" + e.Message);
 			}
 		}
     }
@@ -484,60 +516,67 @@ namespace ShowHiddenStats
     [HarmonyPatch(typeof(BaseHull), "EditorFormatPropulsionStats")]
     class Patch_BaseHull_EditorFormatPropulsionStats
     {
-        static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> __result)
-        {
-            List<DriveComponent> propulsionComponents = __instance.CollectComponents<DriveComponent>();
-            if (propulsionComponents != null && propulsionComponents.Count > 0)
+		static void Postfix(ref BaseHull __instance, ref List<ValueTuple<string, string>> __result)
+		{
+			try
 			{
-				float[] thrusterStrengthValues = ShowHiddenStats.FindThrusterStrengthValues(__instance);
+				List<DriveComponent> propulsionComponents = __instance.CollectComponents<DriveComponent>();
+				if (propulsionComponents != null && propulsionComponents.Count > 0)
+				{
+					float[] thrusterStrengthValues = ShowHiddenStats.FindThrusterStrengthValues(__instance);
 
-				int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "Acceleration Time");
-				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Main Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[0] * 100)));
-				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Fore Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[1] * 100)));
-				__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Side Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[2] * 100)));
+					int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "$SHIPSTAT_ACCELTIME");
+					__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Main Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[0] * 100)));
+					__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Fore Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[1] * 100)));
+					__result.Insert(insertionPoint, new ValueTuple<string, string>(" - Side Thrusters", string.Format("{0:0.##}%", thrusterStrengthValues[2] * 100)));
 
-				StatValue statAngularMotor = (StatValue)Utilities.GetPrivateField(__instance, "_statAngularMotor");
-				StatValue statMaxTurnSpeed = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxTurnSpeed");
+					StatValue statAngularMotor = (StatValue)Utilities.GetPrivateField(__instance, "_statAngularMotor");
+					StatValue statMaxTurnSpeed = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxTurnSpeed");
 
-				Vector3D tensor = Vector3D.Zero;
-				Vector3 extents = __instance.TensorCalculationDimensions;
-				double hullMass = (double)__instance.Mass;
-				tensor.X = 0.08333333333333333 * hullMass * (double)(extents.y * extents.y + extents.z * extents.z);
-				tensor.Y = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.z * extents.z);
-				tensor.Z = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.y * extents.y);
+					Vector3D tensor = Vector3D.Zero;
+					Vector3 extents = __instance.TensorCalculationDimensions;
+					double hullMass = (double)__instance.Mass;
+					tensor.X = 0.08333333333333333 * hullMass * (double)(extents.y * extents.y + extents.z * extents.z);
+					tensor.Y = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.z * extents.z);
+					tensor.Z = 0.08333333333333333 * hullMass * (double)(extents.x * extents.x + extents.y * extents.y);
 
-				double momentInertiaY = tensor.Y;
-				double momentInertiaZ = tensor.Z;
-				double angularDamping = 0.1;
+					double momentInertiaY = tensor.Y;
+					double momentInertiaZ = tensor.Z;
+					double angularDamping = 0.1;
 
-				double baseTrueMaxTurnRate = Math.Min(statAngularMotor.BaseValue / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.BaseValue * 180 / Math.PI);
-				double finalTrueMaxTurnRate = Math.Min(statAngularMotor.Value / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.Value * 180 / Math.PI);
-				float modifierTrueMaxTurnRate = (float)(finalTrueMaxTurnRate / baseTrueMaxTurnRate) - 1.0f;
+					double baseTrueMaxTurnRate = Math.Min(statAngularMotor.BaseValue / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.BaseValue * 180 / Math.PI);
+					double finalTrueMaxTurnRate = Math.Min(statAngularMotor.Value / momentInertiaY / angularDamping * 180 / Math.PI, statMaxTurnSpeed.Value * 180 / Math.PI);
+					float modifierTrueMaxTurnRate = (float)(finalTrueMaxTurnRate / baseTrueMaxTurnRate) - 1.0f;
 
-				double baseMax180TurnSpeed = 180 / (statMaxTurnSpeed.BaseValue * 180 / Math.PI);
-				double finalMax180TurnSpeed = 180 / (statMaxTurnSpeed.Value * 180 / Math.PI);
+					double baseMax180TurnSpeed = 180 / (statMaxTurnSpeed.BaseValue * 180 / Math.PI);
+					double finalMax180TurnSpeed = 180 / (statMaxTurnSpeed.Value * 180 / Math.PI);
 
-				double baseTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
-				double finalTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
-				float modifierTimeToTurn180 = (float)(finalTimeToTurn180 / baseTimeToTurn180) - 1.0f;
+					double baseTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
+					double finalTimeToTurn180 = Math.Max((momentInertiaY * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
+					float modifierTimeToTurn180 = (float)(finalTimeToTurn180 / baseTimeToTurn180) - 1.0f;
 
-				double baseTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
-				double finalTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
-				float modifierTimeToRoll180 = (float)(finalTimeToRoll180 / baseTimeToRoll180) - 1.0f;
-				
-                ShowHiddenStats.ReplaceStatLabel(__result, "Turn Rate", "Theoretical Turn Rate");
+					double baseTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.BaseValue) + 10, baseMax180TurnSpeed);
+					double finalTimeToRoll180 = Math.Max((momentInertiaZ * angularDamping * Math.PI / statAngularMotor.Value) + 10, finalMax180TurnSpeed);
+					float modifierTimeToRoll180 = (float)(finalTimeToRoll180 / baseTimeToRoll180) - 1.0f;
 
-				string actualTurnStr = string.Format("{0:0.##} deg/s", finalTrueMaxTurnRate);
-				if (modifierTrueMaxTurnRate != 0.0f) actualTurnStr = actualTurnStr + " (" + StatModifier.FormatModifierColored(modifierTrueMaxTurnRate, false) + ")";
-				__result.Add(new ValueTuple<string, string>("Actual Max Turn Rate", actualTurnStr));
+					ShowHiddenStats.ReplaceStatLabel(__result, "$SHIPSTAT_TURNRATE", "Theoretical Turn Rate");
 
-				string estimatedTurnStr = string.Format("{0:0} s", finalTimeToTurn180);
-				if (modifierTimeToTurn180 != 0.0f) estimatedTurnStr = estimatedTurnStr + " (" + StatModifier.FormatModifierColored(modifierTimeToTurn180, true) + ")";
-				__result.Add(new ValueTuple<string, string>("Estimated 180 Turn", estimatedTurnStr));
+					string actualTurnStr = string.Format("{0:0.##} deg/s", finalTrueMaxTurnRate);
+					if (modifierTrueMaxTurnRate != 0.0f) actualTurnStr = actualTurnStr + " (" + StatModifier.FormatModifierColored(modifierTrueMaxTurnRate, false) + ")";
+					__result.Add(new ValueTuple<string, string>("Actual Max Turn Rate", actualTurnStr));
 
-				string estimatedRollStr = string.Format("{0:0} s", finalTimeToRoll180);
-				if (modifierTimeToRoll180 != 0.0f) estimatedRollStr = estimatedRollStr + " (" + StatModifier.FormatModifierColored(modifierTimeToRoll180, true) + ")";
-				__result.Add(new ValueTuple<string, string>("Estimated 180 Roll", estimatedRollStr));
+					string estimatedTurnStr = string.Format("{0:0} s", finalTimeToTurn180);
+					if (modifierTimeToTurn180 != 0.0f) estimatedTurnStr = estimatedTurnStr + " (" + StatModifier.FormatModifierColored(modifierTimeToTurn180, true) + ")";
+					__result.Add(new ValueTuple<string, string>("Estimated 180 Turn", estimatedTurnStr));
+
+					string estimatedRollStr = string.Format("{0:0} s", finalTimeToRoll180);
+					if (modifierTimeToRoll180 != 0.0f) estimatedRollStr = estimatedRollStr + " (" + StatModifier.FormatModifierColored(modifierTimeToRoll180, true) + ")";
+					__result.Add(new ValueTuple<string, string>("Estimated 180 Roll", estimatedRollStr));
+				}
+			}
+			catch (Exception e)
+			{
+				Debug.LogError("Show Hidden Stats has encountered a fatal error in the EditorFormatPropulsionStats() override and is aborting to allow the fleet file to be loaded. Please relay this to the mod author. Here follows the root error:\n" + e.Message);
 			}
 		}
 	}
@@ -649,6 +688,50 @@ namespace ShowHiddenStats
 					}
 				}
 			}
+
+			if (__instance is LightweightAirburstFragShell)
+			{
+				LightweightAirburstFragShell fragmentationShell = (LightweightAirburstFragShell)__instance;
+
+				float blastRadius = (float)Utilities.GetPrivateField(fragmentationShell, "_blastRadius");
+
+				__result = __result + "\n";
+				__result = __result + "Blast Radius: " + (blastRadius * 10f) + " m";
+			}
+
+			if (__instance is LightweightProximityShell)
+			{
+				LightweightProximityShell proximityShell = (LightweightProximityShell)__instance;
+
+				float triggerRadius = (float)Utilities.GetPrivateField(proximityShell, "_triggerRadius");
+
+				__result = __result + "\n";
+				__result = __result + "Fuse Trigger Radius: " + (triggerRadius * 10f) + " m";
+			}
+
+			if (__instance is LightweightClusterShell)
+			{
+				LightweightClusterShell clusterShell = (LightweightClusterShell)__instance;
+
+				float lookaheadSphereRadius = (float)Utilities.GetPrivateField(clusterShell, "_lookaheadSphereRadius");
+
+				__result = __result + "\n";
+				__result = __result + "Pellet Spread Radius: " + (lookaheadSphereRadius * 10f) + " m";
+			}
+
+			if (__instance is NonphysicalMunition)
+			{
+				NonphysicalMunition nonPhysicalMunition = (NonphysicalMunition)__instance;
+
+				bool useSphereCast = (bool)Utilities.GetPrivateField(nonPhysicalMunition, "_useSphereCast");
+				float sphereCastRadius = (float)Utilities.GetPrivateField(nonPhysicalMunition, "_sphereCastRadius");
+
+				if (useSphereCast)
+				{
+					__result = __result + "\n";
+					__result = __result + "Pellet Spread Radius: " + (sphereCastRadius * 10f) + " m";
+				}
+			}
 		}
 	}
 
@@ -725,43 +808,50 @@ namespace ShowHiddenStats
 		
 		static void Postfix(ref BaseActiveSensorComponent __instance, ref List<ValueTuple<string, string>> rows)
 		{
-			StatValue statMaxRange = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxRange");
-            StatValue statRadiatedPower = (StatValue)Utilities.GetPrivateField(__instance, "_statRadiatedPower");
-            StatValue statAperture = (StatValue)Utilities.GetPrivateField(__instance, "_statAperture");
-            StatValue statGain = (StatValue)Utilities.GetPrivateField(__instance, "_statGain");
-            StatValue statSensitivity = (StatValue)Utilities.GetPrivateField(__instance, "_statSensitivity");
-            StatValue statMaxError = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxError");
+			try
+			{
+				StatValue statMaxRange = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxRange");
+				StatValue statRadiatedPower = (StatValue)Utilities.GetPrivateField(__instance, "_statRadiatedPower");
+				StatValue statAperture = (StatValue)Utilities.GetPrivateField(__instance, "_statAperture");
+				StatValue statGain = (StatValue)Utilities.GetPrivateField(__instance, "_statGain");
+				StatValue statSensitivity = (StatValue)Utilities.GetPrivateField(__instance, "_statSensitivity");
+				StatValue statMaxError = (StatValue)Utilities.GetPrivateField(__instance, "_statMaxError");
 
-			int insertionPoint1 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Signature Type");
-			rows.Insert(insertionPoint1, new ValueTuple<string, string>("Detected by ELINT", string.Format("{0:0.## km}", statMaxRange.Value * 1.25f / 100f)));
+				int insertionPoint1 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "$SHIPSTAT_SIGNATURETYPE");
+				rows.Insert(insertionPoint1, new ValueTuple<string, string>("Detected by ELINT", string.Format("{0:0.## km}", statMaxRange.Value * 1.25f / 100f)));
 
-			int insertionPoint2 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Sensitivity");
-			rows.Insert(insertionPoint2, new ValueTuple<string, string>("Overall Effective Output", string.Format("{0:0.## GW}", statRadiatedPower.Value * statAperture.Value * statGain.Value * statGain.Value / 1000000f)));
-            
-			int insertionPoint3 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "Can Lock");
-			rows.Insert(insertionPoint3, new ValueTuple<string, string>("Track Quality", "TQ" + SensorMath.CalculateTrackQuality(statMaxError.Value)));
+				int insertionPoint2 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "$SHIPSTAT_SENSITIVITY");
+				rows.Insert(insertionPoint2, new ValueTuple<string, string>("Overall Effective Output", string.Format("{0:0.## GW}", statRadiatedPower.Value * statAperture.Value * statGain.Value * statGain.Value / 1000000f)));
 
-            float[] signatures = { 1000, 2000, 3000, 5000, 7000, 9000, 12000 };
+				int insertionPoint3 = rows.FindIndex(RowsBeforeCurrent, tuple => tuple.Item1 == "$SHIPSTAT_CANLOCK");
+				rows.Insert(insertionPoint3, new ValueTuple<string, string>("Track Quality", "TQ" + SensorMath.CalculateTrackQuality(statMaxError.Value)));
 
-			rows.Add(new ValueTuple<string, string>("", ""));
-			rows.Add(new ValueTuple<string, string>("Detection Range by Signature Size", ""));
+				float[] signatures = { 1000, 2000, 3000, 5000, 7000, 9000, 12000 };
 
-			foreach (float signature in signatures)
-            {
-                double range = ShowHiddenStats.CalculateDetectionRange(signature, statRadiatedPower.Value, statGain.Value, statAperture.Value, statSensitivity.Value);
-                string rowHeader = " - Detection of " + signature + " m<sup>2</sup> Signature";
+				rows.Add(new ValueTuple<string, string>("", ""));
+				rows.Add(new ValueTuple<string, string>("Detection Range by Signature Size", ""));
 
-				if (range >= statMaxRange.Value * 10f)
+				foreach (float signature in signatures)
 				{
-					rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange.Value / 100f)));
-                }
-                else
-				{
-					rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
-                }
-            }
+					double range = ShowHiddenStats.CalculateDetectionRange(signature, statRadiatedPower.Value, statGain.Value, statAperture.Value, statSensitivity.Value);
+					string rowHeader = " - Detection of " + signature + " m<sup>2</sup> Signature";
 
-			rows.Add(new ValueTuple<string, string>("", ""));
+					if (range >= statMaxRange.Value * 10f)
+					{
+						rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", statMaxRange.Value / 100f)));
+					}
+					else
+					{
+						rows.Add(new ValueTuple<string, string>(rowHeader, string.Format("{0:0.## km}", range / 1000f)));
+					}
+				}
+
+				rows.Add(new ValueTuple<string, string>("", ""));
+			}
+			catch (Exception e)
+			{
+				Debug.LogError("Show Hidden Stats has encountered a fatal error in the SensorComponent::GetFormattedStats() override and is aborting to allow the fleet file to be loaded. Please relay this to the mod author. Here follows the root error:\n" + e.Message);
+			}
 		}
     }
 
@@ -770,14 +860,21 @@ namespace ShowHiddenStats
     {
         static void Postfix(ref HullComponent __instance, ref List<ValueTuple<string, string>> rows, ref bool full)
         {
-            if (!full) return;
+			try
+			{
+				if (!full) return;
 
-            float functioningThreshold = (float)Utilities.GetPrivateField(__instance, "_functioningThreshold");
-            Ships.Priority dcPriority = (Ships.Priority)Utilities.GetPrivateField(__instance, "_dcPriority");
+				float functioningThreshold = (float)Utilities.GetPrivateField(__instance, "_functioningThreshold");
+				Ships.Priority dcPriority = (Ships.Priority)Utilities.GetPrivateField(__instance, "_dcPriority");
 
-			int insertionPoint = rows.FindIndex(tuple => tuple.Item1 == "Damage Threshold");
-			rows.Insert(insertionPoint, new ValueTuple<string, string>("Hitpoints to Function", ((int)functioningThreshold).ToString()));
-			rows.Add(new ValueTuple<string, string>("DC Priority", dcPriority.ToString()));
+				int insertionPoint = rows.FindIndex(tuple => tuple.Item1 == "$SHIPSTAT_DT");
+				rows.Insert(insertionPoint, new ValueTuple<string, string>("Hitpoints to Function", ((int)functioningThreshold).ToString()));
+				rows.Add(new ValueTuple<string, string>("DC Priority", dcPriority.ToString()));
+			}
+			catch (Exception e)
+			{
+				Debug.LogError("Show Hidden Stats has encountered a fatal error in the HullComponent::GetFormattedStats() override and is aborting to allow the fleet file to be loaded. Please relay this to the mod author. Here follows the root error:\n" + e.Message);
+			}
 		}
     }
 
@@ -790,7 +887,7 @@ namespace ShowHiddenStats
 			{
 				float totalFuel;
 				float work = __instance.CalculateLoadoutChangeVolume(__instance.CurrentlyEditingLoadout, true, true, out totalFuel);
-				int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "Pre-Flight Time");
+				int insertionPoint = __result.FindIndex(tuple => tuple.Item1 == "$CRAFTSTAT_PREFLIGHTTIME");
 				__result.Insert(insertionPoint, new ValueTuple<string, string>("Pre-Flight Work", string.Format("{0:0.##}", work)));
 
 				SpacecraftSocket[] sockets = (SpacecraftSocket[])Utilities.GetPrivateField(__instance, "_sockets");
@@ -823,10 +920,13 @@ namespace ShowHiddenStats
 
 					foreach (KeyValuePair<string, int> ammo in totalAmmo)
 					{
-						IMunition munition = __instance.FromFleet.AvailableMunitions.GetMunition(ammo.Key);
+						IMunition munition = BundleManager.Instance.GetMunition(ammo.Key);
 
-						totalPointCost += (float)munition.PointCost * (float)ammo.Value / (float)munition.PointDivision;
-						sortedAmmo.Add(munition.MunitionName, ammo.Value);
+						if (munition != null) // covers case where old fleet files have now-removed munitions in them, like the RBU-15
+						{
+							totalPointCost += (float)munition.PointCost * (float)ammo.Value / (float)munition.PointDivision;
+							sortedAmmo.Add(munition.MunitionName, ammo.Value);
+						}
 					}
 
 					__result.Add(new ValueTuple<string, string>("", ""));
